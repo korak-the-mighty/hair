@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /* Generates the Neon Drive vocal pack with ElevenLabs.
  *
- *   ELEVENLABS_API_KEY=... node tools/make-vocals.js [--force] [--only id,id]
+ *   node tools/make-vocals.js [--force] [--only id,id]
+ *
+ * The key comes from ELEVENLABS_API_KEY, or, when it is stored as an API
+ * credential in the cloud environment, the egress proxy attaches it to
+ * requests for api.elevenlabs.io and the script never sees it.
  *
  * Reads tools/vocals.json and writes assets/vocals/<id>.mp3 plus
  * assets/vocals/pack.js (the clips as base64, so the page also works when
@@ -22,16 +26,13 @@ const force = args.includes('--force');
 const onlyArg = args.indexOf('--only');
 const only = onlyArg >= 0 ? new Set(args[onlyArg + 1].split(',')) : null;
 
-const KEY = process.env.ELEVENLABS_API_KEY;
-if (!KEY) {
-  console.error('ELEVENLABS_API_KEY is not set. Add it as an environment variable (never commit it) and run again.');
-  process.exit(1);
-}
+const KEY = process.env.ELEVENLABS_API_KEY || '';
 const API = 'https://api.elevenlabs.io';
 
 // curl wrapper: returns a Buffer, throws with the API's error text on failure
 function call(method, url, body, accept = 'application/json') {
-  const cfg = [`header = "xi-api-key: ${KEY}"`, `header = "Accept: ${accept}"`];
+  const cfg = [`header = "Accept: ${accept}"`];
+  if (KEY) cfg.push(`header = "xi-api-key: ${KEY}"`);
   if (body) cfg.push('header = "Content-Type: application/json"');
   const bodyFile = body ? path.join(outDir, '.req.json') : null;
   if (body) fs.writeFileSync(bodyFile, JSON.stringify(body));
@@ -40,8 +41,11 @@ function call(method, url, body, accept = 'application/json') {
   try {
     return execFileSync('curl', argv, { input: cfg.join('\n'), maxBuffer: 64 * 1024 * 1024 });
   } catch (e) {
-    const msg = (e.stdout && e.stdout.toString().slice(0, 400)) || e.message;
-    throw new Error(`${method} ${url.replace(API, '')} failed: ${msg}`);
+    const out = (e.stdout && e.stdout.toString()) || '';
+    const err = (e.stderr && e.stderr.toString()) || e.message;
+    if (/CONNECT|\b403\b.*tunnel|Proxy/i.test(err) && !out) throw new Error('The network policy blocked api.elevenlabs.io. Allow that domain under Network access in the environment settings.');
+    if (/\b401\b|invalid_api_key|missing.*api.key/i.test(out)) throw new Error('ElevenLabs rejected the request: no valid key. Add it under API credentials (for api.elevenlabs.io) or as ELEVENLABS_API_KEY in the environment settings, then start a new session.');
+    throw new Error(`${method} ${url.replace(API, '')} failed: ${(out || err).slice(0, 400)}`);
   } finally {
     if (bodyFile && fs.existsSync(bodyFile)) fs.unlinkSync(bodyFile);
   }
