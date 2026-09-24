@@ -94,6 +94,7 @@
         body: ND.genHeroCar(),
         wheels: ND.genWheelFrames(),
         driver: ND.genDriver(),
+        glass: ND.genWindowGlass(seed + 44),
         arm: ND.genDriverArm(),
         x: 206,
         y: Y.CAR - ND.HERO.H + 1,
@@ -102,6 +103,9 @@
         nod: 0,
         armTh: 0.12,
         smoke: [],
+        spray: [],
+        armOut: 1,   // 1 = arm out of the window, 0 = pulled inside
+        window: 0,   // 0 = window down, 1 = up
       };
       this.fxr = ND.rng(seed + 333);
       this.nextWalker = 0;
@@ -300,7 +304,7 @@
       const y = lane === 0 ? 239 + r.int(0, 2) : 245 + r.int(0, 2);
       const f = ND.fAt(y);
       const dir = opts.dir || (r() < 0.5 ? 1 : -1); // +1 walks left (with traffic)
-      const v = dir * r.range(0.85, 1.1);
+      const v = dir * r.range(0.85, 1.1) * (1 + this.weather.v.rain * 0.55);
       const x = atX != null ? atX : -40;
       const P = this.D - (x - CX) / f;
       const umb = opts.sprite === this.heroWalker ? -1 : r() < 0.78 ? r.int(0, 6) : -1;
@@ -400,13 +404,22 @@
       const sinceBump = this.tick % 97;
       const kick = ND.hash(Math.floor(this.tick / 97), 5) < 0.35 ? Math.exp(-sinceBump / 14) * Math.sin(sinceBump * 0.35) * 0.09 : 0;
       hero.armTh = 0.12 + 0.07 * Math.sin(t * 1.7) + 0.03 * Math.sin(t * 4.1 + 1) + kick;
+      // rain: the arm comes in first, then the window goes up (and the reverse)
+      const wet = this.weather.v.rain > 0.4;
+      if (wet) {
+        hero.armOut = Math.max(0, hero.armOut - 1 / 24);
+        if (hero.armOut === 0) hero.window = Math.min(1, hero.window + 1 / 80);
+      } else {
+        hero.window = Math.max(0, hero.window - 1 / 80);
+        if (hero.window === 0) hero.armOut = Math.min(1, hero.armOut + 1 / 24);
+      }
       // cigarette smoke, whisked back by the wind (car-local coordinates)
       const A = hero.arm, fr = A.frames[ND.clamp(Math.round(((hero.armTh - A.th0) / (A.th1 - A.th0)) * (A.N - 1)), 0, A.N - 1)];
       const fx = this.fxr, rain = this.weather.v.rain;
-      if (!init) {
+      if (!init && hero.armOut > 0.99) {
         hero.smoke.push({ x: fr.tip[0], y: fr.tip[1] - 0.4, vx: 0.35 + fx() * 0.4, vy: -0.42 - fx() * 0.3, age: 0, life: (50 + fx() * 34) * (1 - rain * 0.5), ph: fx() * 6.28 });
       }
-      if (!init && fx() < 1 / 420) {
+      if (!init && hero.armOut > 0.99 && fx() < 1 / 420) {
         const n = 2 + Math.floor(fx() * 3);
         for (let i = 0; i < n; i++) hero.smoke.push({ x: fr.tip[0], y: fr.tip[1], vx: 1.8 + fx() * 1.6, vy: (fx() - 0.6) * 0.5, age: 0, life: 9 + fx() * 12, ph: 0, spark: true });
       }
@@ -420,6 +433,22 @@
         p.age++;
       }
       hero.smoke = hero.smoke.filter((p) => p.age < p.life);
+
+      // tyres throw spray off the wet road (car-local coordinates)
+      if (!init && rain > 0.08) {
+        for (const [wx] of ND.HERO.WHEELS) {
+          const n = rain * 5.5;
+          for (let k = 0; k < Math.floor(n) + (fx() < n % 1 ? 1 : 0); k++) {
+            hero.spray.push({ x: wx + 10 + fx() * 12, y: 71 + fx() * 4, vx: 1.6 + fx() * 3.6, vy: -0.7 - fx() * 1.8, age: 0, life: 12 + fx() * 18 });
+          }
+        }
+      }
+      for (const p of hero.spray) { p.x += p.vx; p.y += p.vy; p.vy += 0.11; p.vx *= 0.97; p.age++; }
+      hero.spray = hero.spray.filter((p) => p.age < p.life && p.y < 90);
+
+      // wind: palms sway harder, clouds race in storms
+      this.sway = (this.sway || 0) + (2.2 + this.weather.v.storm * 5 + this.weather.v.rain * 1.5) / 60;
+      this.cloudShift = (this.cloudShift || 0) + 1 + this.weather.v.storm * 5 + this.weather.v.rain * 1.5;
     }
 
     // run a slice of queued generation work

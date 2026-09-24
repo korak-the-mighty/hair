@@ -381,7 +381,7 @@
             let cover = 0;
             const samples = 4;
             for (let k = 0; k < samples; k++) {
-              const a = ang - th + (k / samples) * blur;
+              const a = ang - th - (k / samples) * blur; // trail lies behind a counter-clockwise spin
               let m = ((a % period) + period) % period;
               if (m > period / 2) m -= period;
               const halfW = (2.9 - d * 0.07) / Math.max(1.5, d);
@@ -535,7 +535,29 @@
     };
   }
 
+  // Door window glass (rolled up in the rain): tint, highlights, raindrops.
+  function genWindowGlass(seed) {
+    const r = ND.rng(seed);
+    const poly = [[117, 26], [128, 15], [136, 8], [142, 4], [172, 4], [172, 26]];
+    const pb = new ND.PB(HW, 28);
+    pb.polyFn(poly, (x, y) => {
+      let a = 60, c = [150, 140, 215];
+      const s = x + y * 1.3;
+      if (s % 23 < 3) { a = 125; c = [235, 225, 255]; }
+      else if (s % 23 < 5) { a = 90; c = [255, 150, 230]; }
+      pb.set(x, y, ND.pack(c[0], c[1], c[2], a));
+    });
+    for (let i = 0; i < 26; i++) {
+      const x = r.int(120, 170), y = r.int(6, 24);
+      if (!pb.alpha(x, y)) continue;
+      pb.set(x, y, ND.pack(245, 240, 255, 230));
+      if (r() < 0.35) for (let k = 1; k < r.int(2, 5); k++) if (pb.alpha(x, y + k)) pb.set(x, y + k, ND.pack(200, 195, 240, 150));
+    }
+    return pb.canvas();
+  }
+
   ND.genHeroCar = genHeroCar;
+  ND.genWindowGlass = genWindowGlass;
   ND.genDriver = genDriver;
   ND.genDriverArm = genDriverArm;
   ND.genWheelFrames = genWheelFrames;

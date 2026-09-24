@@ -16,7 +16,8 @@ if (args[0] === '--fragment') {
   const title = inlined.match(/<title>[\s\S]*?<\/title>/)[0];
   const style = inlined.match(/<style>[\s\S]*?<\/style>/)[0];
   const body = inlined.match(/<body>([\s\S]*)<\/body>/)[1];
-  fs.writeFileSync(args[1], `${title}\n${style}\n${body}`);
+  // preview hosts can't hand the viewer a file, so recording is disabled there
+  fs.writeFileSync(args[1], `${title}\n${style}\n<script>window.ND_PREVIEW = true;</script>\n${body}`);
   console.log('fragment ->', args[1]);
 } else {
   fs.mkdirSync(path.join(root, 'dist'), { recursive: true });

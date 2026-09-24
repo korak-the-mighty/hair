@@ -167,6 +167,7 @@
       this.letter = 0;
       this.letterOn = false;
       this.grainOn = true;
+      this.titlesOn = true;
     }
 
     // Tiles a horizontally-wrapping texture across the screen.
@@ -212,7 +213,11 @@
       const w = this.world, c = this.c, g = this.g;
       const t = w.tick / 60;
       const wx = w.weather;
-      const R = { c, g, t, tick: w.tick, D: w.D, r: this, weather: wx, boost: wx.boost };
+      const mp = ND.music ? ND.music.pulse() : null;
+      this.mp = mp && mp.playing ? mp : null;
+      const R = { c, g, t, tick: w.tick, D: w.D, r: this, weather: wx, boost: wx.boost, cloudShift: w.cloudShift };
+      // the driver nods on the beat when the drums are in
+      this.nod = this.mp && this.mp.energy >= 0.5 && this.mp.kick > 0.55 ? 1 : 0;
       this.wet.ripple = 1 + wx.v.rain * 0.8;
       this.wet.mirror = 1 + wx.v.rain * 0.12;
       this.wet.streak = 1 + wx.v.rain * 0.25 + wx.flash * 0.6;
@@ -456,7 +461,7 @@
           const tx = x - P.bx, ty = base - P.h;
           c.drawImage(P.trunk.c, tx, ty);
           this.occlude(P.trunk.c, tx, ty);
-          const fr = Math.floor(t * 2.2 + it.ph) % ND.PALM_FRAMES;
+          const fr = Math.floor((w.sway || t * 2.2) + it.ph) % ND.PALM_FRAMES;
           const img = P.crowns[fr];
           const cx = x + Math.round(P.topDX) - Math.round(P.ccx), cy = ty - Math.round(P.ccy);
           c.drawImage(img, cx, cy);
@@ -586,7 +591,7 @@
         if (x > W + 10 || x + S.w < -10) continue;
         tx.clearRect(0, 0, S.w, S.h);
         tx.drawImage(S.body.c, 0, 0);
-        const fr = Math.floor(car.wa) % 4;
+        const fr = 3 - (Math.floor(car.wa) % 4); // counter-clockwise, like the hero's wheels
         for (const [wx, wy] of S.wheels) tx.drawImage(S.wheelFrames[fr], wx - 10, wy - 10);
         const y = Y.FAR - S.ground;
         // headlight beam ahead, brake-light glow behind (lighting the wet road)
@@ -653,20 +658,40 @@
       }
       // driver (behind the door), then the door top again so the torso stays inside
       const Dv = h.driver;
-      cx.drawImage(Dv.c, Dv.x, Dv.y + h.bob + (h.nod || 0));
+      cx.drawImage(Dv.c, Dv.x, Dv.y + h.bob + (this.nod || 0));
+      // window glass rolls up when it rains
+      if (h.window > 0) {
+        const top = Math.round(26 - h.window * 23);
+        cx.drawImage(h.glass, 0, top, HW, 27 - top, 0, top + h.bob, HW, 27 - top);
+        cx.fillStyle = 'rgba(240,236,255,0.8)';
+        cx.fillRect(117 + Math.round((26 - top) * 0.45), top + h.bob, Math.round(55 - (26 - top) * 0.45), 1);
+      }
       cx.drawImage(h.body.c, 104, 26, 108, 2, 104, 26 + h.bob, 108, 2);
-      // arm out of the window with the cigarette
+      // arm out of the window with the cigarette (pulled in when it rains)
       const A = h.arm;
       const af = A.frames[ND.clamp(Math.round(((h.armTh - A.th0) / (A.th1 - A.th0)) * (A.N - 1)), 0, A.N - 1)];
-      cx.drawImage(af.c, A.ox, A.oy + h.bob);
-      const ember = 0.6 + 0.4 * ND.noise(R.t * 9, 3.3, 17);
-      const tx = Math.round(af.tip[0]), ty = Math.round(af.tip[1]) + h.bob;
-      cx.fillStyle = `rgb(255,${(150 + ember * 100) | 0},${(60 + ember * 80) | 0})`;
-      cx.fillRect(tx, ty, 1, 1);
-      cx.fillStyle = `rgb(255,${(70 + ember * 60) | 0},30)`;
-      cx.fillRect(tx + 1, ty, 1, 1);
+      if (h.armOut >= 0.999) {
+        cx.drawImage(af.c, A.ox, A.oy + h.bob);
+        const ember = 0.6 + 0.4 * ND.noise(R.t * 9, 3.3, 17);
+        const tx = Math.round(af.tip[0]), ty = Math.round(af.tip[1]) + h.bob;
+        cx.fillStyle = `rgb(255,${(150 + ember * 100) | 0},${(60 + ember * 80) | 0})`;
+        cx.fillRect(tx, ty, 1, 1);
+        cx.fillStyle = `rgb(255,${(70 + ember * 60) | 0},30)`;
+        cx.fillRect(tx + 1, ty, 1, 1);
+      } else if (h.armOut > 0) {
+        // sliding up and in over the sill
+        const lift = Math.round((1 - h.armOut) * 16);
+        cx.save();
+        cx.beginPath();
+        cx.rect(0, 27 + h.bob, HW, HH);
+        cx.clip();
+        cx.drawImage(af.c, A.ox, A.oy + h.bob - lift);
+        cx.restore();
+      }
       const WF = h.wheels;
-      const fr = Math.floor(((h.angle % WF.period) + WF.period) % WF.period / WF.period * WF.frames.length) % WF.frames.length;
+      // driving left = counter-clockwise spin (screen y points down, so the angle decreases)
+      const spin = ((-h.angle % WF.period) + WF.period) % WF.period;
+      const fr = Math.floor((spin / WF.period) * WF.frames.length) % WF.frames.length;
       for (const [wx, wy] of ND.HERO.WHEELS) cx.drawImage(WF.frames[fr], wx - WF.R, wy - WF.R);
       // driving lights: pool on the road ahead + a beam you can see in the rain
       const c = this.c, g0 = this.g;
@@ -698,12 +723,21 @@
       const A2 = h.arm;
       const af2 = A2.frames[ND.clamp(Math.round(((h.armTh - A2.th0) / (A2.th1 - A2.th0)) * (A2.N - 1)), 0, A2.N - 1)];
       const em = 0.6 + 0.4 * ND.noise(R.t * 9, 3.3, 17);
-      g.fillStyle = `rgba(255,120,40,${0.9 * em})`;
+      if (h.armOut >= 0.999) g.fillStyle = `rgba(255,120,40,${0.9 * em})`;
+      else g.fillStyle = 'rgba(0,0,0,0)';
       g.fillRect(Math.round(x + af2.tip[0]) - 1, Math.round(y + af2.tip[1]) + h.bob - 1, 4, 3);
-      g.fillStyle = `rgba(255,200,120,${0.9 * em})`;
+      g.fillStyle = h.armOut >= 0.999 ? `rgba(255,200,120,${0.9 * em})` : 'rgba(0,0,0,0)';
       g.fillRect(Math.round(x + af2.tip[0]), Math.round(y + af2.tip[1]) + h.bob, 1, 1);
       // smoke is drawn after bloom (see post) so the glow doesn't wash it out
       this.smokeAt = [x, y];
+      // spray thrown up by the tyres
+      if (h.spray.length) {
+        for (const p of h.spray) {
+          const k = p.age / p.life;
+          c.fillStyle = `rgba(222,216,250,${0.62 * (1 - k)})`;
+          c.fillRect(Math.round(x + p.x), Math.round(y + p.y), k < 0.5 ? 2 : 1, k < 0.25 ? 2 : 1);
+        }
+      }
       // raindrops bursting on the roof, hood and rear deck
       const hits = w.rain.carHits;
       if (hits.length) {
@@ -717,6 +751,36 @@
         c.globalAlpha = 1;
         c.globalCompositeOperation = 'source-over';
       }
+    }
+
+    // "Now playing" card when a new track starts.
+    drawTitle(R) {
+      const mp = this.mp;
+      if (!mp || !mp.track || !this.titlesOn || mp.trackAge > 8) return;
+      const T = mp.track;
+      if (!this.titleCache || this.titleCache.track !== T) {
+        const top = ND.textMask('NOW PLAYING', { small: true, gap: 1 });
+        const name = ND.textMask(T.name, { gap: 1 });
+        const info = ND.textMask(`${T.key.toUpperCase().replace('#', ' SHARP')} - ${T.bpm} BPM`, { small: true, gap: 1 });
+        const w = Math.max(top.w, name.w, info.w) + 8, h = 30;
+        const pb = new ND.PB(w, h), gl = new ND.PB(w, h);
+        ND.neonMask(pb, gl, top, 3, 2, ...ND.NEON.cyan, { halo: false });
+        ND.neonMask(pb, gl, name, 3, 10, ...ND.NEON.pink);
+        ND.neonMask(pb, gl, info, 3, 21, ...ND.NEON.purple, { halo: false });
+        this.titleCache = { track: T, spr: ND.sprite(pb, gl) };
+      }
+      const age = mp.trackAge;
+      const a = age < 0.6 ? age / 0.6 : age > 6.5 ? Math.max(0, (8 - age) / 1.5) : 1;
+      if (a <= 0) return;
+      const c = this.c, s = this.titleCache.spr;
+      const y = H - 44 - Math.round(this.letter);
+      c.globalAlpha = a;
+      c.drawImage(s.c, 14, y);
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = a * 0.6;
+      if (s.g) c.drawImage(s.g, 14, y);
+      c.globalCompositeOperation = 'source-over';
+      c.globalAlpha = 1;
     }
 
     // Splash crowns and expanding ripple rings on the wet street.
@@ -878,8 +942,15 @@
       }
       c.imageSmoothingEnabled = true;
       c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = this.bloom;
+      const mp = this.mp;
+      const pump = mp ? mp.kick * 0.08 * mp.energy + mp.drop * 0.4 : 0;
+      c.globalAlpha = Math.min(1, this.bloom + pump);
       c.drawImage(bl[0], 0, 0, W, H);
+      if (mp && mp.drop > 0.02) {
+        // the drop: every neon on the street surges
+        c.globalAlpha = mp.drop * 0.45;
+        c.drawImage(this.glowC, 0, 0);
+      }
       c.globalAlpha = 1;
       c.globalCompositeOperation = 'source-over';
       c.imageSmoothingEnabled = false;
@@ -912,6 +983,7 @@
         c.fillRect(0, 0, W, H);
         c.globalCompositeOperation = 'source-over';
       }
+      this.drawTitle(R);
       // film grain
       if (this.grainOn && this.q >= 1) c.drawImage(this.fx.grain[(R.tick >> 1) & 3], 0, 0);
       // optional cinematic letterbox (2.39:1)

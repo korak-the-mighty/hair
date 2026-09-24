@@ -13,7 +13,7 @@
   const hud = document.getElementById('hud');
   const stats = document.getElementById('stats');
 
-  let world, renderer;
+  let world, renderer, music, recorder;
   let paused = params.has('paused');
 
   // --- presentation: exact integer scale where possible, otherwise nearest
@@ -36,6 +36,7 @@
   function present() {
     sctx.imageSmoothingEnabled = false;
     sctx.drawImage(renderer.scene, 0, 0, screen.width, screen.height);
+    if (recorder && recorder.active) recorder.frame(renderer.scene);
   }
 
   // --- fixed 60 Hz simulation; dt snapped to the refresh interval to avoid
@@ -138,8 +139,49 @@
     else if (e.key === 'w' || e.key === 'W') { world.weather.cycle(); toast(world.weather.phase); }
     else if (e.key === 'l' || e.key === 'L') { renderer.letterOn = !renderer.letterOn; toast(renderer.letterOn ? 'letterbox on' : 'letterbox off'); }
     else if (e.key === 'g' || e.key === 'G') { renderer.grainOn = !renderer.grainOn; toast(renderer.grainOn ? 'grain on' : 'grain off'); }
+    else if (e.key === 'm' || e.key === 'M') { const on = music.toggle(); soundHint(false); toast(on ? 'music on' : 'music off'); }
+    else if (e.key === 'n' || e.key === 'N') { if (!music.ctx) music.start(); music.skip(); soundHint(false); toast('next track'); }
+    else if (e.key === 't' || e.key === 'T') { renderer.titlesOn = !renderer.titlesOn; toast(renderer.titlesOn ? 'track titles on' : 'track titles off'); }
+    else if (e.key === 'r' || e.key === 'R') toggleRecording();
+    else startSound();
     showHud();
   });
+  window.addEventListener('pointerdown', () => startSound());
+
+  // --- sound starts with the first click / key press (browser autoplay rules)
+  const hintEl = document.getElementById('soundhint');
+  function soundHint(show) { if (hintEl) hintEl.classList.toggle('show', !!show); }
+  function startSound() {
+    if (!music || music.ctx || params.has('mute')) return;
+    music.start();
+    soundHint(false);
+  }
+
+  // --- recording
+  const recEl = document.getElementById('rec');
+  let recTimer = 0;
+  async function toggleRecording() {
+    if (!recorder) return;
+    if (window.ND_PREVIEW) { toast('record from dist/neon-drive.html on your computer'); return; }
+    if (recorder.active) {
+      recorder.stop();
+      recEl.classList.remove('show');
+      clearInterval(recTimer);
+      return;
+    }
+    startSound();
+    try {
+      const ok = await recorder.start(music, renderer.scene);
+      if (!ok) return;
+      recEl.classList.add('show');
+      recTimer = setInterval(() => {
+        const s = Math.floor(recorder.elapsed);
+        recEl.textContent = `REC ${String(Math.floor(s / 3600)).padStart(1, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      }, 250);
+    } catch (e) {
+      toast(e.message || 'recording failed');
+    }
+  }
   window.addEventListener('mousemove', showHud);
   screen.addEventListener('dblclick', toggleFullscreen);
   window.addEventListener('resize', resize);
@@ -150,6 +192,15 @@
     renderer = new ND.Renderer(world, { quality: params.get('q') != null ? +params.get('q') : undefined });
     ND.world = world;
     ND.renderer = renderer;
+    music = ND.music = new ND.Music(seed);
+    recorder = new ND.Recorder(params.get('rec') === '4k' ? 6 : params.get('rec') === '1440p' ? 4 : 3);
+    recorder.onsaved = (name, streamed) => toast(streamed ? 'saved ' + name : 'downloading ' + name);
+    // big moments: a drop during a storm brings the lightning with it
+    ND.bus.on('drop', () => {
+      const wx = world.weather;
+      if (wx.v.storm > 0.5 && !wx.bolt) wx.strike();
+    });
+    soundHint(!params.has('mute'));
     resize();
     renderer.render();
     present();

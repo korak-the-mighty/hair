@@ -157,7 +157,7 @@
       // clouds drift slowly to the right (we travel left)
       for (const cl of this.clouds) {
         const span = W + cl.w;
-        let x = cl.x + R.tick * cl.v;
+        let x = cl.x + (R.cloudShift != null ? R.cloudShift : R.tick) * cl.v;
         x = ((((x + cl.w) % span) + span) % span) - cl.w;
         const xi = Math.round(x);
         c.drawImage(cl.img, xi, cl.y);

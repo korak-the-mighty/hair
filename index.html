@@ -16,6 +16,12 @@
     #hud b { color: #6ae0ff; font-weight: normal; }
     #toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); padding: 4px 12px; letter-spacing: .25em; text-transform: uppercase; color: #ffd6f6; background: rgba(10, 4, 24, .6); border: 1px solid rgba(255, 90, 210, .4); border-radius: 3px; opacity: 0; transition: opacity .5s; pointer-events: none; }
     #toast.show { opacity: 1; }
+    #soundhint { position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%); padding: 6px 14px; letter-spacing: .3em; color: #6ae0ff; background: rgba(10, 4, 24, .6); border: 1px solid rgba(106, 224, 255, .45); border-radius: 3px; display: none; pointer-events: none; animation: pulse 2.4s ease-in-out infinite; }
+    #soundhint.show { display: block; }
+    @keyframes pulse { 50% { opacity: .45; } }
+    @media (prefers-reduced-motion: reduce) { #soundhint { animation: none; } }
+    #rec { position: fixed; right: 16px; top: 12px; padding: 3px 9px; color: #fff; background: rgba(200, 20, 40, .85); border-radius: 3px; letter-spacing: .15em; display: none; }
+    #rec.show { display: block; }
     #stats { position: fixed; right: 12px; top: 10px; color: #9fffd0; background: rgba(0,0,0,.5); padding: 3px 7px; display: none; }
     #stats.show { display: block; }
   </style>
@@ -23,7 +29,9 @@
 <body>
   <canvas id="screen" width="640" height="360"></canvas>
   <div id="loading">BUILDING THE CITY…</div>
-  <div id="hud"><b>F</b> fullscreen · <b>W</b> weather · <b>L</b> letterbox · <b>H</b> hide hints · <b>Space</b> pause · <b>D</b> stats</div>
+  <div id="hud"><b>F</b> fullscreen · <b>M</b> music · <b>N</b> next track · <b>R</b> record · <b>W</b> weather · <b>L</b> letterbox · <b>T</b> titles · <b>H</b> hide hints · <b>Space</b> pause</div>
+  <div id="soundhint">CLICK OR PRESS ANY KEY FOR SOUND</div>
+  <div id="rec">REC 0:00:00</div>
   <div id="toast"></div>
   <div id="stats"></div>
 
@@ -38,6 +46,8 @@
   <script src="src/art/props.js"></script>
   <script src="src/weather.js"></script>
   <script src="src/fx.js"></script>
+  <script src="src/audio.js"></script>
+  <script src="src/recorder.js"></script>
   <script src="src/world.js"></script>
   <script src="src/renderer.js"></script>
   <script src="src/main.js"></script>
