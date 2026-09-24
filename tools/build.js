@@ -8,7 +8,9 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const inlined = html.replace(/<script src="([^"]+)"><\/script>/g, (m, src) => {
-  const code = fs.readFileSync(path.join(root, src), 'utf8');
+  const file = path.join(root, src);
+  if (!fs.existsSync(file)) return `<!-- ${src} not present -->`; // e.g. no vocal pack generated yet
+  const code = fs.readFileSync(file, 'utf8');
   return `<script>/* ${src} */\n${code.replace(/<\/script/gi, '<\\/script')}\n</script>`;
 });
 const args = process.argv.slice(2);

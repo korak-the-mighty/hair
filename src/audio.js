@@ -35,6 +35,35 @@
     [0, 1, 2, 3, 0, 1, 2, 3], [0, 2, 1, 3, 0, 2, 1, 3], [0, 1, 2, 3, 2, 1, 0, 1],
     [0, 3, 2, 3, 1, 3, 2, 3], [3, 2, 1, 0, 3, 2, 1, 0], [0, 0, 2, 1, 3, 1, 2, 1],
   ];
+  // Vocal chop rhythms over two bars: [16th step, length]
+  const CHOP_RHYTHMS = [
+    [[0, 3], [3, 3], [6, 2], [12, 2], [16, 3], [19, 3], [22, 2], [28, 4]],
+    [[2, 2], [6, 2], [10, 2], [14, 2], [18, 2], [22, 2], [26, 2], [30, 2]],
+    [[0, 6], [8, 2], [10, 2], [12, 4], [16, 6], [24, 8]],
+    [[0, 2], [2, 2], [4, 4], [12, 2], [14, 2], [16, 2], [18, 2], [20, 8]],
+  ];
+  const CHOP_NOTES = [[3, 2, 3, 1, 3, 2, 0, 2], [0, 1, 2, 3, 2, 1, 2, 3], [3, 3, 2, 2, 1, 1, 2, 3]];
+
+  // Pitch of a sung clip (autocorrelation over a steady slice), in MIDI.
+  function detectPitch(d, sr, from, to) {
+    const N = 2048;
+    const start = Math.max(0, Math.floor(from + (to - from) * 0.35));
+    if (start + N * 2 > d.length) return null;
+    const minLag = Math.floor(sr / 1000), maxLag = Math.floor(sr / 75);
+    let best = 0, bestLag = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let s = 0, e1 = 0, e2 = 0;
+      for (let i = 0; i < N; i++) {
+        const a = d[start + i], b = d[start + i + lag];
+        s += a * b; e1 += a * a; e2 += b * b;
+      }
+      const c = s / Math.sqrt(e1 * e2 + 1e-12);
+      if (c > best) { best = c; bestLag = lag; }
+    }
+    if (best < 0.6 || !bestLag) return null;
+    return 69 + 12 * Math.log2(sr / bestLag / 440);
+  }
+
   const WORDS_A = ['Midnight', 'Neon', 'Chrome', 'Velvet', 'Magenta', 'Electric', 'Crystal', 'Ocean', 'Laser', 'Violet', 'Golden', 'Satin', 'Cobalt', 'Cherry', 'Silver', 'Tropic', 'Lunar', 'Infinite', 'Silent'];
   const WORDS_B = ['Causeway', 'Boulevard', 'Afterglow', 'Overdrive', 'Riviera', 'Mirage', 'Heatwave', 'Skyline', 'Horizon', 'Nightcall', 'Arcade', 'Coastline', 'Getaway', 'Afterhours', 'Parallel', 'Cruise', 'Satellite', 'Palms', 'Motel', 'Signal'];
 
@@ -198,6 +227,16 @@
       dr.connect(merger, 0, 1);
       const dOut = ctx.createGain(); dOut.gain.value = 0.5;
       merger.connect(dOut).connect(N.sweep);
+      // vocals: hooks bypass the sidechain and the sweep (they must be heard in
+      // the silent beat before a drop); chops go through the music bus and pump
+      N.vox = ctx.createGain();
+      N.vox.gain.value = 0.9;
+      const voxHP = ctx.createBiquadFilter();
+      voxHP.type = 'highpass'; voxHP.frequency.value = 170;
+      N.vox.connect(voxHP).connect(N.master);
+      this.vox = { hooks: [], chops: [], ready: false };
+      this.recentHooks = [];
+      this.voxLoading = this.loadVocals(ctx);
       // noise buffers
       this.white = this.noise(ctx, 2, 'white');
       this.pink = this.noise(ctx, 4, 'pink');
@@ -207,6 +246,41 @@
       N.amb.gain.value = 1;
       N.amb.connect(N.master);
       this.buildAmbience(ctx);
+    }
+
+    async loadVocals(ctx) {
+      const pack = window.ND_VOCALS;
+      if (!pack || !pack.clips || !pack.clips.length) return;
+      for (const clip of pack.clips) {
+        try {
+          const bin = atob(clip.data);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const buf = await new Promise((res, rej) => {
+            const p = ctx.decodeAudioData(bytes.buffer, res, rej);
+            if (p && p.then) p.then(res, rej);
+          });
+          const d = buf.getChannelData(0), sr = buf.sampleRate;
+          let peak = 0;
+          for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+          let on = 0, off = d.length - 1;
+          while (on < d.length && Math.abs(d[on]) < peak * 0.05) on++;
+          while (off > on && Math.abs(d[off]) < peak * 0.03) off--;
+          const item = {
+            id: clip.id, text: clip.text, tags: clip.tags || [], buf,
+            onset: Math.max(0, on / sr - 0.012), dur: (off - on) / sr + 0.05,
+            norm: Math.min(4, 0.7 / (peak || 1)),
+          };
+          if (clip.kind === 'chop') {
+            item.midi = detectPitch(d, sr, on, off);
+            if (item.midi == null) continue; // unpitched: not usable as a chop
+            this.vox.chops.push(item);
+          } else this.vox.hooks.push(item);
+        } catch (e) {
+          console.warn('Neon Drive: vocal clip failed to load', clip.id, e);
+        }
+      }
+      this.vox.ready = this.vox.hooks.length + this.vox.chops.length > 0;
     }
 
     impulse(ctx, secs, decay, gated) {
@@ -334,6 +408,33 @@
       }
       this.marks.push({ t: this.nextTime || 0, type: 'track', track: T });
       this.emit('track', T);
+      this.vplan = this.planVocals(T);
+    }
+
+    // Where the vocals go in this track (clips are picked when they play).
+    planVocals(T) {
+      const r = this.r, plan = { hooks: [], chop: null };
+      const find = (name, pred = () => true) => T.sections.find((s) => s.name === name && pred(s));
+      const intro = find('intro'), brk = find('break'), build2 = find('build', (s) => s.second);
+      const build1 = find('build', (s) => !s.second), fin = find('drop', (s) => s.final), outro = find('outro');
+      if (r() < 0.75) plan.hooks.push({ bar: intro.start + Math.floor(intro.bars * 0.4), k: 0, tag: 'intro' });
+      if (r() < 0.9) plan.hooks.push({ bar: brk.start + 1, k: 8, tag: 'break' });
+      if (r() < 0.8) plan.hooks.push({ bar: build2.start + Math.floor(build2.bars / 2), k: 0, tag: 'build' });
+      if (r() < 0.85) plan.hooks.push({ bar: fin.start - 1, k: 0, tag: 'drop-in', align: true });
+      if (r() < 0.35) plan.hooks.push({ bar: build1.start + build1.bars - 1, k: 0, tag: 'drop-in', align: true });
+      if (r() < 0.5) plan.hooks.push({ bar: outro.start + 6, k: 0, tag: 'outro' });
+      plan.chop = { pick: r(), rhythm: r.pick(CHOP_RHYTHMS), notes: r.pick(CHOP_NOTES), octave: r() < 0.5 ? 12 : 0 };
+      return plan;
+    }
+
+    pickHook(tag) {
+      const pool = this.vox.hooks.filter((h) => h.tags.includes(tag));
+      if (!pool.length) return null;
+      const fresh = pool.filter((h) => !this.recentHooks.includes(h.id));
+      const h = this.r.pick(fresh.length ? fresh : pool);
+      this.recentHooks.push(h.id);
+      if (this.recentHooks.length > 6) this.recentHooks.shift();
+      return h;
     }
     skip() {
       if (!this.ctx) return;
@@ -428,6 +529,17 @@
         if (s.name === 'build') G.linearRampToValueAtTime(0.95, t + this.stepDur * 16 * s.bars - this.stepDur * 4);
         if (s.name === 'outro') G.linearRampToValueAtTime(0.25, t + this.stepDur * 16 * s.bars);
       }
+      // --- vocal hooks
+      if (this.vox && this.vox.ready && this.vplan) {
+        for (const ev of this.vplan.hooks) {
+          if (ev.bar !== this.bar || ev.k !== k) continue;
+          const h = this.pickHook(ev.tag);
+          if (!h) continue;
+          // drop-in lines end exactly where the drop lands, after the silent beat
+          const at = ev.align ? Math.max(t, t + this.stepDur * 16 - h.dur - 0.02) : t;
+          this.hook(at, h, ev.tag);
+        }
+      }
       // --- the wait: one beat of silence before every drop
       const gap = s.name === 'build' && lastBar && k >= 12;
       if (gap) {
@@ -511,6 +623,19 @@
         const m = v[idx % v.length] + (k >= 8 && s.name === 'drop' ? 12 : 0);
         const bright = s.name === 'drop' ? 0.9 : s.name === 'break' ? 0.3 : 0.4 + secT * 0.4;
         this.arp(t, m, s.name === 'drop' ? 0.16 : s.name === 'break' ? 0.1 : 0.13, bright);
+      }
+
+      // ------------------------------------------------ vocal chops ride the drops
+      if (s.name === 'drop' && (s.final || sb >= 8) && this.vox && this.vox.ready && this.vox.chops.length && this.vplan) {
+        const P = this.vplan.chop;
+        const pos = (this.bar % 2) * 16 + k;
+        const hitIdx = P.rhythm.findIndex(([st]) => st === pos);
+        if (hitIdx >= 0) {
+          const clip = this.vox.chops[Math.floor(P.pick * this.vox.chops.length) % this.vox.chops.length];
+          const v = voice(pcs, null, 67);
+          const m = v[P.notes[hitIdx % P.notes.length] % v.length] + P.octave;
+          this.chopNote(t, clip, m, this.stepDur * P.rhythm[hitIdx][1] * 0.9, s.final ? 0.42 : 0.34);
+        }
       }
 
       // ------------------------------------------------ lead
@@ -787,6 +912,47 @@
       for (const o of oscs) { o.start(t); o.stop(end); }
     }
 
+    hook(t, h, tag) {
+      const c = this.ctx, N = this.n;
+      const src = c.createBufferSource();
+      src.buffer = h.buf;
+      const g = c.createGain();
+      g.gain.value = h.norm * (tag === 'drop-in' ? 0.95 : 0.8);
+      // a touch of "radio" colour in intros, fuller elsewhere
+      const eq = c.createBiquadFilter();
+      eq.type = tag === 'intro' ? 'bandpass' : 'peaking';
+      eq.frequency.value = tag === 'intro' ? 1800 : 3200;
+      if (tag === 'intro') eq.Q.value = 0.7; else { eq.gain.value = 3; eq.Q.value = 0.8; }
+      src.connect(eq).connect(g).connect(N.vox);
+      const rs = c.createGain(); rs.gain.value = 0.5; g.connect(rs).connect(N.verbIn);
+      const ds = c.createGain(); ds.gain.value = tag === 'drop-in' ? 0.15 : 0.32; g.connect(ds).connect(N.delayIn);
+      src.start(t, h.onset);
+      src.stop(t + h.dur + 0.2);
+      this.marks.push({ t, type: 'vocal', text: h.text });
+    }
+
+    chopNote(t, clip, m, dur, v) {
+      const c = this.ctx, N = this.n;
+      // retune to the target note, choosing the octave closest to the source
+      let shift = m - clip.midi;
+      while (shift > 6) shift -= 12;
+      while (shift < -6) shift += 12;
+      const src = c.createBufferSource();
+      src.buffer = clip.buf;
+      src.playbackRate.value = Math.pow(2, shift / 12);
+      const g = c.createGain();
+      const peak = v * clip.norm;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t + 0.008);
+      g.gain.setValueAtTime(peak, t + Math.max(0.01, dur - 0.04));
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05);
+      src.connect(g).connect(N.music);
+      const rs = c.createGain(); rs.gain.value = 0.28; g.connect(rs).connect(N.verbIn);
+      const ds = c.createGain(); ds.gain.value = 0.18; g.connect(ds).connect(N.delayIn);
+      src.start(t, clip.onset + Math.min(0.12, clip.dur * 0.1));
+      src.stop(t + dur + 0.1);
+    }
+
     // ---- weather -------------------------------------------------------------------
     updateAmbience() {
       const w = ND.world && ND.world.weather;
@@ -851,6 +1017,7 @@
     async renderOffline(seconds, sr = 44100) {
       const ctx = new OfflineAudioContext(2, Math.floor(sr * seconds), sr);
       this.build(ctx, false);
+      await this.voxLoading;
       this.enabled = true;
       this.newTrack();
       this.nextTime = 0.05;

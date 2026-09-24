@@ -1,0 +1,32 @@
+{
+  "about": "Vocal pack for the Neon Drive soundtrack. tools/make-vocals.js turns this into assets/vocals/*.mp3 + pack.js using ElevenLabs. Hooks are spoken/whispered lines placed in intros, breakdowns and builds; chops are sung syllables the engine re-pitches to each track's key for the drops.",
+  "voices": {
+    "her": { "prefer": ["Charlotte", "Sarah", "Lily", "Matilda", "Rachel"], "env": "ELEVENLABS_VOICE_HER" },
+    "him": { "prefer": ["Brian", "Daniel", "George", "Adam"], "env": "ELEVENLABS_VOICE_HIM" }
+  },
+  "hooks": [
+    { "id": "night-drive", "voice": "her", "text": "Night drive.", "tags": ["intro", "outro"], "style": "whisper" },
+    { "id": "neon-rain", "voice": "her", "text": "Neon... in the rain.", "tags": ["break", "intro"], "style": "whisper" },
+    { "id": "dont-look-back", "voice": "her", "text": "Don't look back.", "tags": ["break", "build"], "style": "breathy" },
+    { "id": "stay-with-me", "voice": "her", "text": "Stay with me... till the morning.", "tags": ["break"], "style": "breathy" },
+    { "id": "city-never-sleeps", "voice": "him", "text": "The city never sleeps.", "tags": ["intro", "break"], "style": "low" },
+    { "id": "just-drive", "voice": "him", "text": "Just drive.", "tags": ["intro", "outro"], "style": "low" },
+    { "id": "chasing-lights", "voice": "her", "text": "Chasing the lights.", "tags": ["break", "intro"], "style": "breathy" },
+    { "id": "can-you-feel-it", "voice": "her", "text": "Can you feel it?", "tags": ["build"], "style": "breathy" },
+    { "id": "almost-there", "voice": "her", "text": "We're almost there.", "tags": ["build"], "style": "whisper" },
+    { "id": "wait-for-it", "voice": "her", "text": "Wait for it...", "tags": ["build"], "style": "whisper" },
+    { "id": "here-it-comes", "voice": "her", "text": "Here it comes.", "tags": ["drop-in"], "style": "whisper" },
+    { "id": "hold-on", "voice": "him", "text": "Hold on.", "tags": ["drop-in"], "style": "low" },
+    { "id": "midnight-again", "voice": "him", "text": "Midnight... again.", "tags": ["outro", "break"], "style": "low" },
+    { "id": "ocean-drive", "voice": "her", "text": "Ocean Drive. Two a.m.", "tags": ["intro"], "style": "breathy" },
+    { "id": "dont-let-go", "voice": "her", "text": "Don't let go.", "tags": ["build", "break"], "style": "breathy" },
+    { "id": "turn-it-up", "voice": "him", "text": "Turn it up.", "tags": ["drop-in"], "style": "low" }
+  ],
+  "chops": [
+    { "id": "ooh", "syllable": "ooh", "prompt": "Solo female pop vocal, a cappella, one long sustained 'ooh' sung on a single steady note A4, soft and airy, no instruments, no effects, dry studio recording." },
+    { "id": "ah", "syllable": "ah", "prompt": "Solo female pop vocal, a cappella, one long sustained 'aah' sung on a single steady note A4, bright and open, no instruments, no effects, dry studio recording." },
+    { "id": "oh", "syllable": "oh", "prompt": "Solo female pop vocal, a cappella, one sustained 'oh' sung on a single steady note E4, warm, no instruments, no effects, dry studio recording." },
+    { "id": "hey", "syllable": "hey", "prompt": "Solo female pop vocal, a cappella, a short punchy sung 'hey!' on the note A4, no instruments, no effects, dry studio recording." },
+    { "id": "yeah", "syllable": "yeah", "prompt": "Solo female pop vocal, a cappella, a short sung 'yeah' on the note A4, sweet and breathy, no instruments, no effects, dry studio recording." }
+  ]
+}
