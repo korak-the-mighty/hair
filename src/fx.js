@@ -56,16 +56,16 @@
     return pb.canvas();
   }
 
-  // Film grain frames (sparse light/dark specks, alpha baked in).
+  // Film grain frames: mid-grey noise for a soft-light blend, so it adds
+  // texture to the mid-tones but leaves bright paint and deep blacks clean.
   function genGrain(n, seed) {
     const r = ND.rng(seed);
     const frames = [];
     for (let k = 0; k < n; k++) {
       const pb = new ND.PB(W, H);
       for (let i = 0; i < W * H; i++) {
-        const v = r();
-        if (v < 0.2) pb.d[i] = ND.pack(0, 0, 8, 8 + r() * 12);
-        else if (v > 0.88) pb.d[i] = ND.pack(255, 240, 255, 3 + r() * 6);
+        const v = 128 + ((r() + r() + r()) / 3 - 0.5) * 34;
+        pb.d[i] = ND.pack(v, v, v);
       }
       frames.push(pb.canvas());
     }

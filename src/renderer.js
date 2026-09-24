@@ -663,8 +663,12 @@
       if (h.window > 0) {
         const top = Math.round(26 - h.window * 23);
         cx.drawImage(h.glass, 0, top, HW, 27 - top, 0, top + h.bob, HW, 27 - top);
-        cx.fillStyle = 'rgba(240,236,255,0.8)';
-        cx.fillRect(117 + Math.round((26 - top) * 0.45), top + h.bob, Math.round(55 - (26 - top) * 0.45), 1);
+        // the glass's top edge catches the light (same shape as the pane)
+        cx.globalCompositeOperation = 'lighter';
+        cx.globalAlpha = 0.7;
+        cx.drawImage(h.glass, 0, top, HW, 1, 0, top + h.bob, HW, 1);
+        cx.globalAlpha = 1;
+        cx.globalCompositeOperation = 'source-over';
       }
       cx.drawImage(h.body.c, 104, 26, 108, 2, 104, 26 + h.bob, 108, 2);
       // arm out of the window with the cigarette (pulled in when it rains)
@@ -745,7 +749,7 @@
         const crowns = this.fx.rings.crowns;
         for (const hit of hits) {
           const lx = hit.u * (HW - 4) + 2, ly = ND.HERO.topY(lx);
-          c.globalAlpha = 0.75 * (1 - hit.age / 7);
+          c.globalAlpha = 0.4 * (1 - hit.age / 7);
           c.drawImage(crowns[hit.age % 3], Math.round(x + lx - 2), Math.round(y + ly - 2 + h.bob - (hit.age < 2 ? 1 : 0)));
         }
         c.globalAlpha = 1;
@@ -985,7 +989,13 @@
       }
       this.drawTitle(R);
       // film grain
-      if (this.grainOn && this.q >= 1) c.drawImage(this.fx.grain[(R.tick >> 1) & 3], 0, 0);
+      if (this.grainOn && this.q >= 1) {
+        c.globalCompositeOperation = 'soft-light';
+        c.globalAlpha = 0.55;
+        c.drawImage(this.fx.grain[(R.tick >> 1) & 3], 0, 0);
+        c.globalAlpha = 1;
+        c.globalCompositeOperation = 'source-over';
+      }
       // optional cinematic letterbox (2.39:1)
       const target = this.letterOn ? 46 : 0;
       this.letter += (target - this.letter) * 0.06;

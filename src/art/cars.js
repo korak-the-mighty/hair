@@ -283,8 +283,6 @@
     // steering wheel + dash
     pb.thick(129, 12, 131, 24, 0.9, P(rgb('#0e0a16')));
     pb.thick(111, 22, 132, 20, 1.2, P(rgb('#16121e')));
-    pb.set(126, 20, P(rgb('#6ae8ff')));
-    gl.set(126, 20, ND.pack(60, 180, 220));
     // seat back / headrest
     for (let y = 6; y < 26; y++) for (let x = 162; x < 171; x++) {
       if (y < 9 && (x < 164 || x > 168)) continue;
@@ -306,8 +304,6 @@
     // door shut lines
     pb.lineFn(105, 28, 107, 60, (x, y) => pb.set(x, y, P(rgb('#9894b4'))));
     for (let y = 28; y < 60; y++) if (y < 35 || y > 56) pb.set(173, y, P(rgb('#9894b4')));
-    // door handle hidden in strakes; small key lock
-    pb.set(169, 31, P(rgb('#8a86a6')));
 
     // ---- side mirror on the A-pillar
     pb.thick(121, 21, 124, 20, 0.8, P(rgb('#2a2440')));
@@ -547,11 +543,11 @@
       else if (s % 23 < 5) { a = 90; c = [255, 150, 230]; }
       pb.set(x, y, ND.pack(c[0], c[1], c[2], a));
     });
-    for (let i = 0; i < 26; i++) {
-      const x = r.int(120, 170), y = r.int(6, 24);
+    for (let i = 0; i < 11; i++) {
+      const x = r.int(122, 170), y = r.int(7, 22);
       if (!pb.alpha(x, y)) continue;
-      pb.set(x, y, ND.pack(245, 240, 255, 230));
-      if (r() < 0.35) for (let k = 1; k < r.int(2, 5); k++) if (pb.alpha(x, y + k)) pb.set(x, y + k, ND.pack(200, 195, 240, 150));
+      pb.set(x, y, ND.pack(235, 230, 255, 150));
+      for (let k = 1; k < r.int(2, 4); k++) if (pb.alpha(x, y + k)) pb.set(x, y + k, ND.pack(200, 195, 240, 90));
     }
     return pb.canvas();
   }
