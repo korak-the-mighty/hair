@@ -1,0 +1,4032 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Neon Drive</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #f0d8ff; }
+    #screen { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+    body.idle, body.idle #screen { cursor: none; }
+    #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; letter-spacing: .3em; color: #ff5fd0; text-shadow: 0 0 8px #ff3cc8; }
+    body.ready #loading { display: none; }
+    #hud { position: fixed; left: 16px; bottom: 14px; padding: 6px 10px; background: rgba(10, 4, 24, .55); border: 1px solid rgba(255, 90, 210, .35); border-radius: 4px; transition: opacity .6s; pointer-events: none; }
+    body.idle #hud, body.nohud #hud { opacity: 0; }
+    #hud b { color: #6ae0ff; font-weight: normal; }
+    #stats { position: fixed; right: 12px; top: 10px; color: #9fffd0; background: rgba(0,0,0,.5); padding: 3px 7px; display: none; }
+    #stats.show { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="screen" width="640" height="360"></canvas>
+  <div id="loading">BUILDING THE CITY…</div>
+  <div id="hud"><b>F</b> fullscreen · <b>H</b> hide hints · <b>Space</b> pause · <b>D</b> stats</div>
+  <div id="stats"></div>
+
+  <script>/* src/core.js */
+/* Neon Drive — core utilities: constants, RNG, colour, dithering, pixel buffers, noise. */
+(function () {
+  'use strict';
+  const ND = (window.ND = window.ND || {});
+
+  // ---------------------------------------------------------------------------
+  // World constants. Everything is authored for a 640x360 pixel world, which
+  // scales by an exact integer to 720p (2x), 1080p (3x), 1440p (4x) and 4K (6x).
+  // ---------------------------------------------------------------------------
+  const W = 640, H = 360;
+  ND.W = W;
+  ND.H = H;
+  ND.CX = W / 2;
+  ND.HORIZON = 180;   // vanishing line of the ground plane
+  ND.SPEED = 4;       // road pixels per tick at depth factor 1 (the hero lane)
+  ND.TICK = 1 / 60;   // fixed simulation step
+
+  // Ground plane: screen row <-> parallax factor.
+  ND.fAt = (y) => (y - ND.HORIZON) / 96;
+  ND.yAt = (f) => ND.HORIZON + f * 96;
+
+  // Important rows of the street.
+  ND.Y = {
+    BUILD: 228,   // building bases / back of the sidewalk (f = 0.5)
+    CURB: 252,    // curb edge (f = 0.75)
+    FAR: 262,     // far traffic lane ground contact
+    CAR: 276,     // hero car ground contact (f = 1)
+    LINE: 300,    // lane line
+  };
+
+  // ---------------------------------------------------------------------------
+  // Deterministic RNG (mulberry32) + hashing.
+  // ---------------------------------------------------------------------------
+  ND.rng = function (seed) {
+    let a = seed >>> 0;
+    const r = function () {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    r.range = (lo, hi) => lo + (hi - lo) * r();
+    r.int = (lo, hi) => Math.floor(lo + (hi - lo + 1) * r());
+    r.pick = (arr) => arr[Math.floor(r() * arr.length)];
+    r.chance = (p) => r() < p;
+    return r;
+  };
+
+  ND.hash = function (a, b = 0, c = 0) {
+    let n = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(c | 0, 2147483647);
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    n ^= n >>> 16;
+    return (n >>> 0) / 4294967296;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Colour helpers. Colours are [r,g,b] arrays (0..255) for maths and packed
+  // little-endian ABGR uint32 values for pixel buffers.
+  // ---------------------------------------------------------------------------
+  ND.rgb = function (hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const clamp255 = (v) => (v < 0 ? 0 : v > 255 ? 255 : v | 0);
+  ND.clamp255 = clamp255;
+  ND.pack = (r, g, b, a = 255) =>
+    ((clamp255(a) << 24) | (clamp255(b) << 16) | (clamp255(g) << 8) | clamp255(r)) >>> 0;
+  ND.packHex = (hex, a = 255) => {
+    const c = ND.rgb(hex);
+    return ND.pack(c[0], c[1], c[2], a);
+  };
+  ND.mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  ND.scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+  ND.css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  ND.lerp = (a, b, t) => a + (b - a) * t;
+  ND.clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+  ND.smooth = (t) => t * t * (3 - 2 * t);
+
+  // Multi-stop gradient: stops = [[t, [r,g,b]], ...]
+  ND.grad = function (stops, t) {
+    if (t <= stops[0][0]) return stops[0][1];
+    for (let i = 1; i < stops.length; i++) {
+      if (t <= stops[i][0]) {
+        const a = stops[i - 1], b = stops[i];
+        return ND.mix(a[1], b[1], (t - a[0]) / (b[0] - a[0]));
+      }
+    }
+    return stops[stops.length - 1][1];
+  };
+
+  // ---------------------------------------------------------------------------
+  // Ordered dithering (Bayer 4x4) — gives gradients that authentic pixel look.
+  // ---------------------------------------------------------------------------
+  const B4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  ND.bayer = (x, y) => (B4[((y & 3) << 2) | (x & 3)] + 0.5) / 16;
+  ND.dq = function (v, x, y, step = 14) {
+    const q = Math.round(v / step + ND.bayer(x, y) - 0.5) * step;
+    return q < 0 ? 0 : q > 255 ? 255 : q;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Pixel buffer: fast per-pixel sprite authoring, converted to a canvas once.
+  // ---------------------------------------------------------------------------
+  class PB {
+    constructor(w, h) {
+      this.w = w | 0;
+      this.h = h | 0;
+      this.d = new Uint32Array(this.w * this.h);
+    }
+    in(x, y) {
+      return x >= 0 && y >= 0 && x < this.w && y < this.h;
+    }
+    set(x, y, c) {
+      x |= 0; y |= 0;
+      if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
+      this.d[y * this.w + x] = c;
+    }
+    get(x, y) {
+      x |= 0; y |= 0;
+      if (x < 0 || y < 0 || x >= this.w || y >= this.h) return 0;
+      return this.d[y * this.w + x];
+    }
+    alpha(x, y) {
+      return this.get(x, y) >>> 24;
+    }
+    // Set with dithered quantisation of an [r,g,b] float colour.
+    dset(x, y, c, a = 255, step = 14) {
+      x |= 0; y |= 0;
+      if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
+      this.d[y * this.w + x] = ND.pack(ND.dq(c[0], x, y, step), ND.dq(c[1], x, y, step), ND.dq(c[2], x, y, step), a);
+    }
+    // Alpha-blend an [r,g,b] colour on top (a in 0..1).
+    blend(x, y, c, a) {
+      x |= 0; y |= 0;
+      if (a <= 0 || x < 0 || y < 0 || x >= this.w || y >= this.h) return;
+      const i = y * this.w + x, o = this.d[i];
+      const oa = (o >>> 24) / 255;
+      if (oa === 0) {
+        this.d[i] = ND.pack(c[0], c[1], c[2], a * 255);
+        return;
+      }
+      const na = a + oa * (1 - a);
+      const k = a / na;
+      const r = (o & 255) + (c[0] - (o & 255)) * k;
+      const g = ((o >> 8) & 255) + (c[1] - ((o >> 8) & 255)) * k;
+      const b = ((o >> 16) & 255) + (c[2] - ((o >> 16) & 255)) * k;
+      this.d[i] = ND.pack(r, g, b, na * 255);
+    }
+    // Additive light (keeps alpha, raises it to at least `a`).
+    add(x, y, c, s = 1) {
+      x |= 0; y |= 0;
+      if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
+      const i = y * this.w + x, o = this.d[i];
+      const oa = o >>> 24;
+      const r = (o & 255) + c[0] * s, g = ((o >> 8) & 255) + c[1] * s, b = ((o >> 16) & 255) + c[2] * s;
+      this.d[i] = ND.pack(r, g, b, Math.max(oa, 255));
+    }
+    rgbAt(x, y) {
+      const o = this.get(x, y);
+      return [o & 255, (o >> 8) & 255, (o >> 16) & 255];
+    }
+    rect(x, y, w, h, c) {
+      const x0 = Math.max(0, x | 0), y0 = Math.max(0, y | 0);
+      const x1 = Math.min(this.w, (x + w) | 0), y1 = Math.min(this.h, (y + h) | 0);
+      for (let yy = y0; yy < y1; yy++) this.d.fill(c, yy * this.w + x0, yy * this.w + x1);
+    }
+    hline(x0, x1, y, c) {
+      if (x1 < x0) { const t = x0; x0 = x1; x1 = t; }
+      this.rect(x0, y, x1 - x0 + 1, 1, c);
+    }
+    vline(x, y0, y1, c) {
+      if (y1 < y0) { const t = y0; y0 = y1; y1 = t; }
+      this.rect(x, y0, 1, y1 - y0 + 1, c);
+    }
+    line(x0, y0, x1, y1, c) {
+      x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+      const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+      const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+      let err = dx + dy;
+      for (;;) {
+        this.set(x0, y0, c);
+        if (x0 === x1 && y0 === y1) break;
+        const e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+      }
+    }
+    // Calls fn(x,y) for each pixel of a line.
+    lineFn(x0, y0, x1, y1, fn) {
+      x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+      const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+      const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+      let err = dx + dy, i = 0;
+      const n = Math.max(dx, -dy) || 1;
+      for (;;) {
+        fn(x0, y0, i / n);
+        i++;
+        if (x0 === x1 && y0 === y1) break;
+        const e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+      }
+    }
+    disc(cx, cy, r, c) {
+      const rr = r * r + r * 0.6;
+      for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++)
+        for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+          const dx = x - cx, dy = y - cy;
+          if (dx * dx + dy * dy <= rr) this.set(x, y, c);
+        }
+    }
+    discFn(cx, cy, r, fn) {
+      const rr = r * r + r * 0.6;
+      for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++)
+        for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+          const dx = x - cx, dy = y - cy;
+          if (dx * dx + dy * dy <= rr) fn(x, y, Math.sqrt(dx * dx + dy * dy) / (r || 1));
+        }
+    }
+    // Thick line made of discs.
+    thick(x0, y0, x1, y1, r, c) {
+      const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0)));
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        if (r <= 0.5) this.set(Math.round(x0 + (x1 - x0) * t), Math.round(y0 + (y1 - y0) * t), c);
+        else this.disc(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r, c);
+      }
+    }
+    // Scanline polygon fill (pixel centres). pts = [[x,y],...]
+    poly(pts, c) {
+      this.polyFn(pts, (x, y) => this.set(x, y, c));
+    }
+    polyFn(pts, fn) {
+      let minY = Infinity, maxY = -Infinity;
+      for (const p of pts) { minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
+      minY = Math.max(0, Math.floor(minY));
+      maxY = Math.min(this.h - 1, Math.ceil(maxY));
+      const xs = [];
+      for (let y = minY; y <= maxY; y++) {
+        const sy = y + 0.5;
+        xs.length = 0;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          const a = pts[i], b = pts[j];
+          if ((a[1] <= sy && b[1] > sy) || (b[1] <= sy && a[1] > sy)) {
+            xs.push(a[0] + ((sy - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
+          }
+        }
+        xs.sort((p, q) => p - q);
+        for (let k = 0; k + 1 < xs.length; k += 2) {
+          const x0 = Math.max(0, Math.ceil(xs[k] - 0.5)), x1 = Math.min(this.w - 1, Math.floor(xs[k + 1] - 0.5));
+          for (let x = x0; x <= x1; x++) fn(x, y);
+        }
+      }
+    }
+    // Draw another buffer on top (src-over, binary alpha fast path).
+    blit(src, dx, dy, flipX = false) {
+      for (let y = 0; y < src.h; y++)
+        for (let x = 0; x < src.w; x++) {
+          const c = src.d[y * src.w + (flipX ? src.w - 1 - x : x)];
+          const a = c >>> 24;
+          if (a === 0) continue;
+          if (a === 255) this.set(dx + x, dy + y, c);
+          else this.blend(dx + x, dy + y, [c & 255, (c >> 8) & 255, (c >> 16) & 255], a / 255);
+        }
+    }
+    flipped() {
+      const o = new PB(this.w, this.h);
+      for (let y = 0; y < this.h; y++)
+        for (let x = 0; x < this.w; x++) o.d[y * this.w + x] = this.d[y * this.w + (this.w - 1 - x)];
+      return o;
+    }
+    // Outline: every transparent pixel touching an opaque one gets colour c.
+    outline(c, diag = false) {
+      const src = this.d.slice();
+      const w = this.w, h = this.h;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          if (src[y * w + x] >>> 24) continue;
+          let hit = false;
+          for (let dy = -1; dy <= 1 && !hit; dy++)
+            for (let dx = -1; dx <= 1; dx++) {
+              if (!diag && dx && dy) continue;
+              const xx = x + dx, yy = y + dy;
+              if (xx >= 0 && yy >= 0 && xx < w && yy < h && src[yy * w + xx] >>> 24 > 128) { hit = true; break; }
+            }
+          if (hit) this.d[y * w + x] = c;
+        }
+    }
+    isEmpty() {
+      for (let i = 0; i < this.d.length; i++) if (this.d[i] >>> 24) return false;
+      return true;
+    }
+    canvas() {
+      const cv = ND.canvas(this.w, this.h);
+      const ctx = cv.getContext('2d');
+      const id = ctx.createImageData(this.w, this.h);
+      new Uint32Array(id.data.buffer).set(this.d);
+      ctx.putImageData(id, 0, 0);
+      return cv;
+    }
+  }
+  ND.PB = PB;
+
+  // ---------------------------------------------------------------------------
+  // Canvas helpers
+  // ---------------------------------------------------------------------------
+  ND.canvas = function (w, h) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, w | 0);
+    c.height = Math.max(1, h | 0);
+    return c;
+  };
+  ND.ctx = function (c, opts) {
+    const x = c.getContext('2d', opts);
+    x.imageSmoothingEnabled = false;
+    return x;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Value noise + fBm
+  // ---------------------------------------------------------------------------
+  function h2(ix, iy, s) {
+    let n = Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + Math.imul(s, 1442695041);
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    n ^= n >>> 16;
+    return (n >>> 0) / 4294967296;
+  }
+  ND.noise = function (x, y, s = 0) {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    const fx = x - ix, fy = y - iy;
+    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    const a = h2(ix, iy, s), b = h2(ix + 1, iy, s), c = h2(ix, iy + 1, s), d = h2(ix + 1, iy + 1, s);
+    return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+  };
+  ND.fbm = function (x, y, oct = 4, s = 0) {
+    let v = 0, amp = 0.5, f = 1, n = 0;
+    for (let i = 0; i < oct; i++) {
+      v += amp * ND.noise(x * f, y * f, s + i * 31);
+      n += amp;
+      amp *= 0.5;
+      f *= 2;
+    }
+    return v / n;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Sprite = colour canvas + optional emissive (glow) canvas, same size.
+  // ---------------------------------------------------------------------------
+  ND.sprite = function (pb, gpb, ox = 0, oy = 0) {
+    return {
+      c: pb.canvas(),
+      g: gpb && !gpb.isEmpty() ? gpb.canvas() : null,
+      w: pb.w,
+      h: pb.h,
+      ox,
+      oy,
+    };
+  };
+})();
+
+</script>
+  <script>/* src/font.js */
+/* Neon Drive — bitmap fonts and neon-tube text rendering. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+
+  // 5x7 capitals, digits and a few symbols.
+  const F5 = {
+    A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+    B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
+    C: ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
+    D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+    E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+    F: ['#####', '#....', '#....', '####.', '#....', '#....', '#....'],
+    G: ['.###.', '#...#', '#....', '#.###', '#...#', '#...#', '.###.'],
+    H: ['#...#', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+    I: ['.###.', '..#..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+    J: ['..###', '...#.', '...#.', '...#.', '...#.', '#..#.', '.##..'],
+    K: ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
+    L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+    M: ['#...#', '##.##', '#.#.#', '#.#.#', '#...#', '#...#', '#...#'],
+    N: ['#...#', '#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#'],
+    O: ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+    P: ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'],
+    Q: ['.###.', '#...#', '#...#', '#...#', '#.#.#', '#..#.', '.##.#'],
+    R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+    S: ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
+    T: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..'],
+    U: ['#...#', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+    V: ['#...#', '#...#', '#...#', '#...#', '#...#', '.#.#.', '..#..'],
+    W: ['#...#', '#...#', '#...#', '#.#.#', '#.#.#', '#.#.#', '.#.#.'],
+    X: ['#...#', '#...#', '.#.#.', '..#..', '.#.#.', '#...#', '#...#'],
+    Y: ['#...#', '#...#', '.#.#.', '..#..', '..#..', '..#..', '..#..'],
+    Z: ['#####', '....#', '...#.', '..#..', '.#...', '#....', '#####'],
+    0: ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
+    1: ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+    2: ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
+    3: ['#####', '...#.', '..#..', '...#.', '....#', '#...#', '.###.'],
+    4: ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
+    5: ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+    6: ['..##.', '.#...', '#....', '####.', '#...#', '#...#', '.###.'],
+    7: ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+    8: ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
+    9: ['.###.', '#...#', '#...#', '.####', '....#', '...#.', '.##..'],
+    ' ': ['.....', '.....', '.....', '.....', '.....', '.....', '.....'],
+    '-': ['.....', '.....', '.....', '.###.', '.....', '.....', '.....'],
+    '!': ['..#..', '..#..', '..#..', '..#..', '..#..', '.....', '..#..'],
+    '.': ['.....', '.....', '.....', '.....', '.....', '.....', '..#..'],
+    '&': ['.##..', '#..#.', '#.#..', '.#...', '#.#.#', '#..#.', '.##.#'],
+    "'": ['..#..', '..#..', '.#...', '.....', '.....', '.....', '.....'],
+    '*': ['.....', '#.#.#', '.###.', '#####', '.###.', '#.#.#', '.....'],
+  };
+
+  // 3x5 small caps for distant/small signs.
+  const F3 = {
+    A: ['###', '#.#', '###', '#.#', '#.#'], B: ['##.', '#.#', '##.', '#.#', '##.'],
+    C: ['###', '#..', '#..', '#..', '###'], D: ['##.', '#.#', '#.#', '#.#', '##.'],
+    E: ['###', '#..', '##.', '#..', '###'], F: ['###', '#..', '##.', '#..', '#..'],
+    G: ['###', '#..', '#.#', '#.#', '###'], H: ['#.#', '#.#', '###', '#.#', '#.#'],
+    I: ['###', '.#.', '.#.', '.#.', '###'], J: ['..#', '..#', '..#', '#.#', '###'],
+    K: ['#.#', '#.#', '##.', '#.#', '#.#'], L: ['#..', '#..', '#..', '#..', '###'],
+    M: ['#.#', '###', '###', '#.#', '#.#'], N: ['##.', '#.#', '#.#', '#.#', '#.#'],
+    O: ['###', '#.#', '#.#', '#.#', '###'], P: ['###', '#.#', '###', '#..', '#..'],
+    Q: ['###', '#.#', '#.#', '###', '..#'], R: ['##.', '#.#', '##.', '#.#', '#.#'],
+    S: ['###', '#..', '###', '..#', '###'], T: ['###', '.#.', '.#.', '.#.', '.#.'],
+    U: ['#.#', '#.#', '#.#', '#.#', '###'], V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
+    W: ['#.#', '#.#', '###', '###', '#.#'], X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
+    Y: ['#.#', '#.#', '.#.', '.#.', '.#.'], Z: ['###', '..#', '.#.', '#..', '###'],
+    0: ['###', '#.#', '#.#', '#.#', '###'], 1: ['.#.', '##.', '.#.', '.#.', '###'],
+    2: ['###', '..#', '###', '#..', '###'], 3: ['###', '..#', '.##', '..#', '###'],
+    4: ['#.#', '#.#', '###', '..#', '..#'], 5: ['###', '#..', '###', '..#', '###'],
+    6: ['###', '#..', '###', '#.#', '###'], 7: ['###', '..#', '..#', '.#.', '.#.'],
+    8: ['###', '#.#', '###', '#.#', '###'], 9: ['###', '#.#', '###', '..#', '###'],
+    ' ': ['...', '...', '...', '...', '...'], '-': ['...', '...', '###', '...', '...'],
+    '.': ['...', '...', '...', '...', '.#.'], '!': ['.#.', '.#.', '.#.', '...', '.#.'],
+    '&': ['.#.', '#.#', '.#.', '#.#', '.##'], "'": ['.#.', '.#.', '...', '...', '...'],
+  };
+
+  ND.FONT5 = F5;
+  ND.FONT3 = F3;
+
+  // Returns a binary mask {w,h,m:Uint8Array} for the text.
+  ND.textMask = function (text, opts = {}) {
+    const font = opts.small ? F3 : F5;
+    const gw = opts.small ? 3 : 5, gh = opts.small ? 5 : 7;
+    const s = opts.scale || 1;
+    const gap = opts.gap != null ? opts.gap : s;
+    const vertical = !!opts.vertical;
+    const italic = opts.italic || 0; // pixels of shear per glyph height
+    const chars = [...text.toUpperCase()];
+    const cw = gw * s, ch = gh * s;
+    const w = vertical ? cw + italic : chars.length * cw + (chars.length - 1) * gap + italic;
+    const h = vertical ? chars.length * ch + (chars.length - 1) * gap : ch;
+    const m = new Uint8Array(w * h);
+    chars.forEach((chr, i) => {
+      const g = font[chr] || font[' '];
+      const ox = vertical ? 0 : i * (cw + gap);
+      const oy = vertical ? i * (ch + gap) : 0;
+      for (let gy = 0; gy < gh; gy++)
+        for (let gx = 0; gx < gw; gx++) {
+          if (g[gy][gx] !== '#') continue;
+          for (let sy = 0; sy < s; sy++)
+            for (let sx = 0; sx < s; sx++) {
+              const yy = oy + gy * s + sy;
+              const sh = italic ? Math.round(((ch - 1 - (gy * s + sy)) / Math.max(1, ch - 1)) * italic) : 0;
+              const xx = ox + gx * s + sx + sh;
+              if (xx >= 0 && xx < w) m[yy * w + xx] = 1;
+            }
+        }
+    });
+    return { w, h, m };
+  };
+
+  // Neon tube text. Draws into colour pb (col) and emissive pb (glow).
+  // core/tube are [r,g,b]; letters get a bright core, saturated halo.
+  ND.neonText = function (col, glow, text, x, y, core, tube, opts = {}) {
+    const mk = ND.textMask(text, opts);
+    ND.neonMask(col, glow, mk, x, y, core, tube, opts);
+    return mk;
+  };
+
+  ND.neonMask = function (col, glow, mk, x, y, core, tube, opts = {}) {
+    const halo = opts.halo !== false;
+    const on = opts.on !== false;
+    const dim = on ? 1 : 0.18;
+    const { w, h, m } = mk;
+    const at = (xx, yy) => (xx >= 0 && yy >= 0 && xx < w && yy < h ? m[yy * w + xx] : 0);
+    if (halo) {
+      for (let yy = -1; yy <= h; yy++)
+        for (let xx = -1; xx <= w; xx++) {
+          if (at(xx, yy)) continue;
+          let n = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += at(xx + dx, yy + dy);
+          if (!n) continue;
+          const a = Math.min(1, 0.35 + n * 0.12) * (on ? 1 : 0.5);
+          col.blend(x + xx, y + yy, ND.scale(tube, on ? 0.95 : 0.35), a);
+          if (glow && on) glow.blend(x + xx, y + yy, ND.scale(tube, 0.55), a);
+        }
+    }
+    for (let yy = 0; yy < h; yy++)
+      for (let xx = 0; xx < w; xx++) {
+        if (!m[yy * w + xx]) continue;
+        const c = on ? core : ND.mix(tube, [30, 20, 40], 0.7);
+        col.set(x + xx, y + yy, ND.pack(c[0] * (on ? 1 : dim + 0.3), c[1] * (on ? 1 : dim + 0.3), c[2] * (on ? 1 : dim + 0.3)));
+        if (glow && on) glow.set(x + xx, y + yy, ND.pack(tube[0] * 0.8 + core[0] * 0.2, tube[1] * 0.8 + core[1] * 0.2, tube[2] * 0.8 + core[2] * 0.2));
+      }
+  };
+
+  // A neon tube along a path of points (1px core + halo).
+  ND.neonPath = function (col, glow, pts, core, tube, opts = {}) {
+    const width = opts.width || 1;
+    const set = new Set();
+    const pb = col;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      pb.lineFn(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], (x, y) => {
+        set.add(x + ',' + y);
+        if (width > 1) set.add(x + 1 + ',' + y);
+      });
+    }
+    ND.neonSet(col, glow, set, core, tube, opts);
+  };
+
+  // Neon from a set of "x,y" keys.
+  ND.neonSet = function (col, glow, set, core, tube, opts = {}) {
+    const pts = [...set].map((k) => k.split(',').map(Number));
+    if (opts.halo !== false) {
+      const seen = new Set();
+      for (const [x, y] of pts)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const k = x + dx + ',' + (y + dy);
+            if (set.has(k) || seen.has(k)) continue;
+            seen.add(k);
+            col.blend(x + dx, y + dy, tube, dx && dy ? 0.45 : 0.75);
+            if (glow) glow.blend(x + dx, y + dy, ND.scale(tube, 0.6), dx && dy ? 0.4 : 0.7);
+          }
+    }
+    for (const [x, y] of pts) {
+      col.set(x, y, ND.pack(core[0], core[1], core[2]));
+      if (glow) glow.set(x, y, ND.pack(tube[0] * 0.75 + core[0] * 0.25, tube[1] * 0.75 + core[1] * 0.25, tube[2] * 0.75 + core[2] * 0.25));
+    }
+  };
+
+  // Common neon colour pairs [core, tube]
+  const c = ND.rgb;
+  ND.NEON = {
+    pink: [c('#ffe0f6'), c('#ff3cc8')],
+    magenta: [c('#ffd6ff'), c('#e03cff')],
+    cyan: [c('#e6ffff'), c('#26d9ff')],
+    blue: [c('#dfe8ff'), c('#3a64ff')],
+    red: [c('#ffe0e0'), c('#ff2a4a')],
+    orange: [c('#fff0d0'), c('#ff8a1e')],
+    yellow: [c('#fffbe0'), c('#ffd21e')],
+    green: [c('#e8ffe8'), c('#2cff7a')],
+    purple: [c('#efe0ff'), c('#9a4cff')],
+    white: [c('#ffffff'), c('#c8d8ff')],
+  };
+})();
+
+</script>
+  <script>/* src/art/sky.js */
+/* Neon Drive — night sky: dithered gradient, stars, moon, drifting clouds. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { W, rgb } = ND;
+
+  const SKY_H = 250;
+
+  function makeSkyGradient(r) {
+    const pb = new ND.PB(W, SKY_H);
+    const stops = [
+      [0.0, rgb('#060518')],
+      [0.25, rgb('#0b0a2a')],
+      [0.5, rgb('#151039')],
+      [0.7, rgb('#231546')],
+      [0.84, rgb('#3a1a5a')],
+      [0.95, rgb('#57216a')],
+      [1.0, rgb('#6a2a70')],
+    ];
+    for (let y = 0; y < SKY_H; y++) {
+      for (let x = 0; x < W; x++) {
+        // a little large-scale variation so the gradient breathes
+        const n = (ND.fbm(x / 140, y / 60, 3, 7) - 0.5) * 0.08;
+        const t = ND.clamp(y / 232 + n, 0, 1);
+        pb.dset(x, y, ND.grad(stops, t), 255, 6);
+      }
+    }
+    // static dim stars
+    const stars = [];
+    for (let i = 0; i < 170; i++) {
+      const x = r.int(0, W - 1), y = Math.floor(Math.pow(r(), 1.6) * 150);
+      const b = r.range(0.25, 0.8) * (1 - y / 190);
+      const tint = r.pick([rgb('#ffffff'), rgb('#cfd8ff'), rgb('#ffe8d0'), rgb('#e0d0ff')]);
+      pb.blend(x, y, tint, b);
+      if (r() < 0.12) stars.push({ x, y, tint, b: b + 0.3, p: r.range(1.5, 5), ph: r() * 6.28 });
+    }
+    return { canvas: pb.canvas(), stars };
+  }
+
+  function makeMoon() {
+    const R = 13;
+    const S = R * 2 + 3;
+    const pb = new ND.PB(S, S), gl = new ND.PB(S, S);
+    const cx = S / 2 - 0.5, cy = S / 2 - 0.5;
+    const base = rgb('#fbe9a6'), limb = rgb('#e9c874'), mare = rgb('#d7b565'), mare2 = rgb('#c7a45a');
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        const dx = x - cx, dy = y - cy;
+        const d = Math.sqrt(dx * dx + dy * dy) / R;
+        if (d > 1.02) continue;
+        let c = ND.mix(base, limb, Math.pow(d, 3));
+        const n = ND.fbm((x + 3) / 6, (y + 9) / 6, 3, 21);
+        if (n > 0.56) c = ND.mix(c, mare, 0.85);
+        if (n > 0.66) c = mare2;
+        if (d > 0.93) c = ND.mix(c, limb, 0.6);
+        pb.dset(x, y, c, 255, 8);
+        gl.dset(x, y, ND.scale(c, 0.55), 255, 8);
+      }
+    return ND.sprite(pb, gl);
+  }
+
+  function makeHalo(radius, color, strength) {
+    const S = radius * 2;
+    const pb = new ND.PB(S, S);
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        const d = Math.hypot(x - radius + 0.5, y - radius + 0.5) / radius;
+        if (d >= 1) continue;
+        const a = Math.pow(1 - d, 2.2) * strength;
+        // dithered alpha steps for a pixel-art halo
+        const q = Math.floor(a * 10 + ND.bayer(x, y)) / 10;
+        if (q > 0) pb.blend(x, y, color, q);
+      }
+    return pb.canvas();
+  }
+
+  function makeCloud(r, w, h, seed, lit) {
+    const pb = new ND.PB(w, h);
+    const body = rgb('#1b1540'), body2 = rgb('#272057'), rim = lit ? rgb('#8a7596') : rgb('#453a78');
+    const dens = (x, y) => {
+      const ex = (x - w / 2) / (w / 2), ey = (y - h * 0.6) / (h * 0.55);
+      const env = 1 - (ex * ex + ey * ey * (ey > 0 ? 2.2 : 1));
+      return ND.fbm(x / 22, y / 8, 4, seed) * 0.9 + env * 0.55 - 0.62;
+    };
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const d = dens(x, y);
+        if (d <= 0) continue;
+        if (d < 0.06 && ND.bayer(x, y) > d / 0.06) continue; // dithered feathered edge
+        const above = dens(x, y - 2);
+        let c = ND.mix(body, body2, ND.clamp(d * 3, 0, 1));
+        if (above < d - 0.04) c = ND.mix(c, rim, ND.clamp((d - above) * 5, 0, 0.9));
+        pb.dset(x, y, c, 235, 6);
+      }
+    return pb.canvas();
+  }
+
+  class Sky {
+    constructor(seed) {
+      const r = ND.rng(seed);
+      const g = makeSkyGradient(r);
+      this.canvas = g.canvas;
+      this.stars = g.stars;
+      this.moon = makeMoon();
+      this.moonX = 548;
+      this.moonY = 44;
+      this.halo = makeHalo(70, rgb('#b89acb'), 0.22);
+      this.haloInner = makeHalo(30, rgb('#ffe9b0'), 0.35);
+      this.clouds = [];
+      const specs = [
+        { w: 260, h: 34, x: 420, y: 18, v: 0.035, lit: true },
+        { w: 200, h: 26, x: 90, y: 34, v: 0.03 },
+        { w: 320, h: 40, x: 240, y: 70, v: 0.05 },
+        { w: 170, h: 22, x: 560, y: 86, v: 0.045, lit: true },
+        { w: 240, h: 30, x: -40, y: 104, v: 0.06 },
+        { w: 280, h: 34, x: 380, y: 128, v: 0.07 },
+      ];
+      specs.forEach((s, i) => {
+        this.clouds.push({ ...s, img: makeCloud(r, s.w, s.h, 100 + i * 13, s.lit) });
+      });
+    }
+
+    draw(R) {
+      const { c, g } = R;
+      c.drawImage(this.canvas, 0, 0);
+      c.fillStyle = '#6a2a70';
+      c.fillRect(0, SKY_H, W, ND.H - SKY_H);
+
+      // twinkling stars
+      for (const s of this.stars) {
+        const tw = 0.5 + 0.5 * Math.sin(R.t * s.p + s.ph);
+        const a = ND.clamp(s.b * (0.35 + 0.65 * tw), 0, 1);
+        c.fillStyle = ND.css(s.tint, a);
+        c.fillRect(s.x, s.y, 1, 1);
+        if (tw > 0.93 && s.b > 0.7) {
+          c.fillStyle = ND.css(s.tint, a * 0.5);
+          c.fillRect(s.x - 1, s.y, 3, 1);
+          c.fillRect(s.x, s.y - 1, 1, 3);
+        }
+      }
+
+      // moon and halo
+      const mx = this.moonX, my = this.moonY;
+      c.drawImage(this.halo, mx - 70, my - 70);
+      c.drawImage(this.haloInner, mx - 30, my - 30);
+      c.drawImage(this.moon.c, mx - this.moon.w / 2, my - this.moon.h / 2);
+      g.drawImage(this.moon.g, mx - this.moon.w / 2, my - this.moon.h / 2);
+
+      // clouds drift slowly to the right (we travel left)
+      for (const cl of this.clouds) {
+        const span = W + cl.w;
+        let x = cl.x + R.tick * cl.v;
+        x = ((((x + cl.w) % span) + span) % span) - cl.w;
+        const xi = Math.round(x);
+        c.drawImage(cl.img, xi, cl.y);
+        // clouds occlude the moon glow
+        g.globalCompositeOperation = 'destination-out';
+        g.globalAlpha = 0.6;
+        g.drawImage(cl.img, xi, cl.y);
+        g.globalAlpha = 1;
+        g.globalCompositeOperation = 'lighter';
+      }
+    }
+  }
+
+  ND.Sky = Sky;
+  ND.makeHalo = makeHalo;
+})();
+
+</script>
+  <script>/* src/art/skyline.js */
+/* Neon Drive — distant skyline towers (3 depths) and the lit causeway bridge. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { rgb } = ND;
+
+  const BASE = 240; // screen row the tower sprites end at (hidden behind the street)
+
+  const DEPTH = [
+    { // far
+      wmin: 14, wmax: 34, topMin: 70, topMax: 150, gapMin: -6, gapMax: 10,
+      body: rgb('#12123a'), body2: rgb('#191a48'), rim: rgb('#24245a'),
+      fog: rgb('#2f1c58'), fogBase: 0.28, fogK: 0.55,
+      lit: 0.18, neon: 0.06, winScale: 1,
+    },
+    { // mid
+      wmin: 20, wmax: 46, topMin: 46, topMax: 160, gapMin: -8, gapMax: 14,
+      body: rgb('#141542'), body2: rgb('#1d1c52'), rim: rgb('#2d2c6c'),
+      fog: rgb('#34205e'), fogBase: 0.12, fogK: 0.5,
+      lit: 0.34, neon: 0.22, winScale: 1,
+    },
+    { // near city
+      wmin: 30, wmax: 70, topMin: 104, topMax: 186, gapMin: -10, gapMax: 22,
+      body: rgb('#171848'), body2: rgb('#221d57'), rim: rgb('#383479'),
+      fog: rgb('#3a2262'), fogBase: 0.0, fogK: 0.4,
+      lit: 0.42, neon: 0.35, winScale: 2,
+    },
+  ];
+
+  const WIN_WARM = [rgb('#ffd67a'), rgb('#ffc861'), rgb('#fff1c9'), rgb('#ffe3a0')];
+  const WIN_COOL = [rgb('#bfe8ff'), rgb('#8fdcff'), rgb('#e8f0ff')];
+  const NEONS = ['pink', 'magenta', 'cyan', 'blue', 'pink', 'purple'];
+
+  function genTower(seed, d, o = {}) {
+    const r = ND.rng(seed);
+    const P = DEPTH[d];
+    const w = o.w || r.int(P.wmin, P.wmax);
+    const top = o.top || r.int(P.topMin, P.topMax);
+    const style = o.style || r.pick(['flat', 'flat', 'setback', 'spire', 'crown', 'slant', 'antenna', 'setback']);
+    const extra = style === 'spire' || style === 'antenna' ? r.int(10, 26) : 0;
+    const hh = BASE - top + extra;
+    const pb = new ND.PB(w, hh), gl = new ND.PB(w, hh);
+    const anims = [];
+    const y0 = extra; // roof row inside the sprite
+    const bodyH = hh - y0;
+
+    // silhouette mask
+    const inside = (x, y) => {
+      if (y < y0) return false;
+      const ry = y - y0;
+      if (style === 'setback') {
+        const s1 = Math.floor(bodyH * 0.12), inset = Math.floor(w * 0.18);
+        if (ry < s1) return x >= inset && x < w - inset;
+        const s2 = Math.floor(bodyH * 0.05);
+        if (ry < s1 + s2) return x >= inset / 2 && x < w - inset / 2;
+      }
+      if (style === 'slant') {
+        const sl = Math.floor(w * 0.6);
+        return ry >= Math.floor((x / w) * sl * 0.8);
+      }
+      if (style === 'crown') {
+        const ch = Math.floor(w * 0.45);
+        if (ry < ch) {
+          const half = (ry / ch) * (w / 2) + 1;
+          return Math.abs(x - w / 2 + 0.5) < half;
+        }
+      }
+      return true;
+    };
+
+    const tint = r.chance(0.3) ? 0.35 : 0;
+    const coolWin = r.chance(0.28);
+    for (let y = 0; y < hh; y++)
+      for (let x = 0; x < w; x++) {
+        if (!inside(x, y)) continue;
+        const sy = top - extra + y; // screen row
+        const fogT = ND.clamp(P.fogBase + ((sy - top) / (BASE - top)) * P.fogK, 0, 0.85);
+        let c = ND.mix(P.body, P.body2, (x / w) * 0.6 + tint * 0.4);
+        if (x === w - 1 || !inside(x + 1, y)) c = P.rim;
+        if (x === 0) c = ND.scale(c, 0.8);
+        c = ND.mix(c, P.fog, fogT);
+        pb.dset(x, y, c, 255, 6);
+      }
+
+    // windows
+    const cw = P.winScale === 2 ? r.pick([3, 4]) : r.pick([2, 3]);
+    const chh = P.winScale === 2 ? r.pick([3, 4]) : r.pick([2, 3]);
+    const pattern = r.pick(['grid', 'grid', 'bands', 'cols']);
+    const litP = o.lit || P.lit * r.range(0.5, 1.6);
+    const floorLit = [];
+    for (let y = y0 + 3; y < hh - 2; y += chh) floorLit.push(r() < litP * 1.2);
+    let fi = 0;
+    for (let y = y0 + 3; y < hh - 2; y += chh, fi++) {
+      for (let x = 2; x < w - 2; x += cw) {
+        if (!inside(x, y) || !inside(x + 1, y + 1) || !inside(x - 1, y)) continue;
+        let on;
+        if (pattern === 'bands') on = floorLit[fi] && r() < 0.85;
+        else if (pattern === 'cols') on = ((x / cw) | 0) % 3 !== 1 && r() < litP * 1.3;
+        else on = r() < litP;
+        const sy = top - extra + y;
+        const fogT = ND.clamp(P.fogBase + ((sy - top) / (BASE - top)) * P.fogK, 0, 0.85);
+        const ww = cw - 1, wh = chh - 1;
+        let wc;
+        if (on) {
+          wc = coolWin ? r.pick(WIN_COOL) : r.pick(WIN_WARM);
+          wc = ND.mix(wc, P.fog, fogT * 0.8);
+          if (d === 0) wc = ND.scale(wc, 0.62);
+        } else {
+          wc = ND.mix(ND.mix(P.body2, rgb('#3a3a78'), 0.35), P.fog, fogT);
+        }
+        for (let yy = 0; yy < wh; yy++)
+          for (let xx = 0; xx < ww; xx++) {
+            pb.dset(x + xx, y + yy, wc, 255, 6);
+            if (on) gl.set(x + xx, y + yy, ND.pack(wc[0] * 0.35, wc[1] * 0.35, wc[2] * 0.35));
+          }
+      }
+    }
+
+    // neon trims
+    if (o.neon || (!o.w && r() < P.neon)) {
+      const [core, tube] = ND.NEON[o.neon || r.pick(NEONS)];
+      const mode = o.mode || r.pick(['edges', 'edges', 'roof', 'right']);
+      const len = r.chance(0.5) ? bodyH : Math.floor(bodyH * r.range(0.3, 0.6));
+      const pts = new Set();
+      for (let y = y0; y < y0 + len; y++) {
+        let lx = 0; while (lx < w && !inside(lx, y)) lx++;
+        let rx = w - 1; while (rx >= 0 && !inside(rx, y)) rx--;
+        if (lx > rx) continue;
+        if (mode === 'edges' || mode === 'roof') { pts.add(lx + ',' + y); pts.add(rx + ',' + y); }
+        if (mode === 'right') pts.add(rx + ',' + y);
+      }
+      if (mode === 'roof' || mode === 'edges') {
+        for (let x = 0; x < w; x++) {
+          let y = 0; while (y < hh && !inside(x, y)) y++;
+          if (y < hh) pts.add(x + ',' + y);
+        }
+      }
+      const dimT = d === 0 ? 0.6 : 1;
+      for (const k of pts) {
+        const [x, y] = k.split(',').map(Number);
+        const c = ND.mix(tube, core, 0.35);
+        pb.set(x, y, ND.pack(c[0] * dimT, c[1] * dimT, c[2] * dimT));
+        gl.set(x, y, ND.pack(tube[0] * 0.8 * dimT, tube[1] * 0.8 * dimT, tube[2] * 0.8 * dimT));
+      }
+    }
+
+    // spire / antenna with blinking aircraft light
+    if (style === 'spire' || style === 'antenna') {
+      const ax = Math.floor(w / 2) - (style === 'antenna' ? r.int(-3, 3) : 0);
+      const col = ND.pack(40, 36, 80);
+      for (let y = 1; y < y0 + 2; y++) {
+        pb.set(ax, y, col);
+        if (style === 'spire' && y > y0 * 0.55) pb.set(ax - 1, y, col), pb.set(ax + 1, y, col);
+      }
+      anims.push({ type: 'blink', x: ax, y: 0, color: rgb('#ff3048'), period: r.range(1.2, 2.2), phase: r() });
+    } else if (r() < 0.25) {
+      anims.push({ type: 'blink', x: Math.floor(w / 2), y: y0 - 1, color: rgb('#ff3048'), period: r.range(1.4, 2.4), phase: r() });
+    }
+
+    return {
+      spr: ND.sprite(pb, gl),
+      w,
+      y: top - extra,
+      gap: o.gap != null ? o.gap : r.int(P.gapMin, P.gapMax),
+      anims,
+    };
+  }
+
+  // Long elevated causeway with lamps and moving car lights.
+  function genBridge(seed) {
+    const r = ND.rng(seed);
+    const w = r.int(620, 820);
+    const deckY = 168; // screen row of deck top
+    const top = deckY - 16;
+    const hh = BASE - top;
+    const pb = new ND.PB(w, hh), gl = new ND.PB(w, hh);
+    const dk = deckY - top;
+    const deck = rgb('#1c1a4a'), deck2 = rgb('#2a2560'), pier = rgb('#181540'), under = rgb('#120f30');
+    // piers
+    const span = r.int(52, 70);
+    for (let px = 20; px < w - 10; px += span) {
+      for (let y = dk + 8; y < hh; y++)
+        for (let x = px; x < px + 6; x++) {
+          const fogT = ND.clamp((y - dk) / (hh - dk) * 0.6, 0, 0.7);
+          pb.dset(x, y, ND.mix(x === px + 5 ? deck2 : pier, rgb('#3a2262'), fogT), 255, 6);
+        }
+    }
+    // deck slab
+    for (let y = dk; y < dk + 8; y++)
+      for (let x = 0; x < w; x++) {
+        let c = y === dk ? deck2 : y >= dk + 6 ? under : deck;
+        pb.dset(x, y, c, 255, 6);
+      }
+    // parapet/rail line
+    for (let x = 0; x < w; x++) pb.set(x, dk - 1, ND.pack(46, 40, 96));
+    // soffit strip lights (cool) under the deck
+    for (let x = 2; x < w; x += 4) {
+      const c = rgb('#7fd6ff');
+      pb.set(x, dk + 7, ND.pack(c[0] * 0.8, c[1] * 0.8, c[2] * 0.8));
+      gl.set(x, dk + 7, ND.pack(c[0] * 0.4, c[1] * 0.4, c[2] * 0.4));
+    }
+    // lamp posts with warm heads
+    const lampEvery = r.int(20, 28);
+    const lamps = [];
+    for (let x = 6; x < w - 4; x += lampEvery) {
+      for (let y = dk - 12; y < dk - 1; y++) pb.set(x, y, ND.pack(34, 30, 70));
+      pb.set(x + 1, dk - 12, ND.pack(34, 30, 70));
+      const lc = rgb('#ffcf7a');
+      pb.set(x + 2, dk - 12, ND.pack(lc[0], lc[1], lc[2]));
+      pb.set(x + 2, dk - 11, ND.pack(lc[0] * 0.8, lc[1] * 0.7, lc[2] * 0.5));
+      gl.set(x + 2, dk - 12, ND.pack(255, 190, 90));
+      gl.set(x + 2, dk - 11, ND.pack(200, 130, 60));
+      gl.set(x + 1, dk - 12, ND.pack(120, 80, 40));
+      gl.set(x + 3, dk - 12, ND.pack(120, 80, 40));
+      lamps.push(x + 2);
+    }
+    // traffic lights on the deck, animated at draw time
+    const cars = [];
+    for (let i = 0; i < Math.floor(w / 60); i++) {
+      cars.push({ dir: r() < 0.5 ? -1 : 1, off: r() * w, v: r.range(0.4, 0.9) });
+    }
+    return {
+      spr: ND.sprite(pb, gl),
+      w,
+      y: top,
+      gap: r.int(10, 60),
+      anims: [{ type: 'bridgeCars', cars, y: dk - 3, w }],
+      isBridge: true,
+    };
+  }
+
+  ND.genTower = genTower;
+  ND.genBridge = genBridge;
+  ND.SKYLINE_BASE = BASE;
+})();
+
+</script>
+  <script>/* src/art/buildings.js */
+/* Neon Drive — Art Deco street buildings with baked neon lighting.
+ *
+ * Each facade is authored as material maps (albedo, relief multiplier,
+ * emissive, glass), lit by an ambient street/sky term plus every neon tube
+ * and lit storefront as an area light, then dithered down to pixels. Neon
+ * tubes and signs are drawn on top and also written to the emissive (glow)
+ * sprite that feeds bloom and wet-road reflections.
+ */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { rgb } = ND;
+  const BASE = ND.Y.BUILD;
+  const EXPO = 1.08;
+
+  const A = (hex) => rgb(hex).map((v) => v / 255); // albedo helper
+
+  const PALETTES = {
+    lavender: { wall: A('#b8a0ff'), trim: A('#e6dcff') },
+    pink: { wall: A('#ffa8d8'), trim: A('#ffe0f0') },
+    mint: { wall: A('#9ff0da'), trim: A('#e0fff4') },
+    peach: { wall: A('#ffc6a8'), trim: A('#fff0e0') },
+    sky: { wall: A('#a4d0ff'), trim: A('#e4f2ff') },
+    cream: { wall: A('#f2e6d0'), trim: A('#ffffff') },
+    lilac: { wall: A('#dca8f8'), trim: A('#f6e4ff') },
+    teal: { wall: A('#7fd8e0'), trim: A('#d8fbff') },
+    coral: { wall: A('#ff9c9c'), trim: A('#ffe0dc') },
+  };
+  const PAL_KEYS = Object.keys(PALETTES);
+
+  const ROOMS = [
+    { top: rgb('#ffe2a0'), bot: rgb('#ffb45c') },
+    { top: rgb('#ffd08a'), bot: rgb('#ff9a48') },
+    { top: rgb('#fff0c8'), bot: rgb('#f0c078') },
+    { top: rgb('#ffc0a0'), bot: rgb('#ff8a6a') },
+  ];
+
+  // ---------------------------------------------------------------------------
+  class Facade {
+    constructor(w, h) {
+      this.w = w;
+      this.h = h;
+      const N = w * h;
+      this.kind = new Uint8Array(N); // 0 empty, 1 lit surface, 2 emissive, 3 glass
+      this.alb = new Float32Array(N * 3);
+      this.mul = new Float32Array(N).fill(1);
+      this.emi = new Float32Array(N * 3);
+      this.eg = new Float32Array(N);
+      this.lights = [];
+      this.col = new ND.PB(w, h);
+      this.glow = new ND.PB(w, h);
+      this.post = [];
+      this.anims = [];
+      this.pools = [];
+      this.crowd = [];
+      this.lamps = [];
+    }
+    each(x, y, w, h, fn) {
+      x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+      const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(this.w, x + w), y1 = Math.min(this.h, y + h);
+      for (let yy = y0; yy < y1; yy++)
+        for (let xx = x0; xx < x1; xx++) fn(yy * this.w + xx, xx, yy, (xx - x) / Math.max(1, w - 1), (yy - y) / Math.max(1, h - 1));
+    }
+    surf(x, y, w, h, alb, mul = 1) {
+      this.each(x, y, w, h, (i) => {
+        this.kind[i] = 1;
+        this.alb[i * 3] = alb[0]; this.alb[i * 3 + 1] = alb[1]; this.alb[i * 3 + 2] = alb[2];
+        this.mul[i] = mul;
+      });
+    }
+    surfPx(x, y, alb, mul = 1) { this.surf(x, y, 1, 1, alb, mul); }
+    mulRect(x, y, w, h, m) {
+      this.each(x, y, w, h, (i) => { if (this.kind[i] === 1) this.mul[i] *= m; });
+    }
+    emit(x, y, w, h, fn, g = 0.45) {
+      this.each(x, y, w, h, (i, xx, yy, u, v) => {
+        const c = typeof fn === 'function' ? fn(xx, yy, u, v) : fn;
+        if (!c) return;
+        this.kind[i] = 2;
+        this.emi[i * 3] = c[0]; this.emi[i * 3 + 1] = c[1]; this.emi[i * 3 + 2] = c[2];
+        this.eg[i] = c[3] != null ? c[3] : g;
+      });
+    }
+    glass(x, y, w, h, tint = 0) {
+      this.each(x, y, w, h, (i, xx, yy, u, v) => {
+        this.kind[i] = 3;
+        this.alb[i * 3] = u; this.alb[i * 3 + 1] = v; this.alb[i * 3 + 2] = tint;
+      });
+    }
+    clear(x, y, w, h) {
+      this.each(x, y, w, h, (i) => { this.kind[i] = 0; });
+    }
+    light(x0, y0, x1, y1, c, I = 1, r = 14) {
+      this.lights.push({ x0, y0, x1, y1, c: c.map((v) => v / 255), I, r });
+    }
+    *shade() {
+      const { w, h } = this;
+      const L = new Float32Array(w * h * 3);
+      const top = BASE - h;
+      for (let y = 0; y < h; y++) {
+        const sy = top + y;
+        const st = Math.exp(-(BASE - sy) / 40);
+        const a0 = 0.22 + 0.42 * st, a1 = 0.17 + 0.25 * st, a2 = 0.38 + 0.14 * st;
+        for (let x = 0, i = y * w * 3; x < w; x++, i += 3) { L[i] = a0; L[i + 1] = a1; L[i + 2] = a2; }
+      }
+      yield;
+      for (const lt of this.lights) {
+        const { x0, y0, x1, y1, c, I, r } = lt;
+        const R = r * 3.2, R2 = R * R, inv = 1 / (r * r);
+        const floorK = I / (1 + R2 * inv);
+        const bx0 = Math.max(0, Math.floor(Math.min(x0, x1) - R)), bx1 = Math.min(w - 1, Math.ceil(Math.max(x0, x1) + R));
+        const by0 = Math.max(0, Math.floor(Math.min(y0, y1) - R)), by1 = Math.min(h - 1, Math.ceil(Math.max(y0, y1) + R));
+        const dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy || 1e-6;
+        for (let y = by0; y <= by1; y++)
+          for (let x = bx0; x <= bx1; x++) {
+            let t = ((x - x0) * dx + (y - y0) * dy) / len2;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const px = x0 + t * dx - x, py = y0 + t * dy - y;
+            const d2 = px * px + py * py;
+            if (d2 > R2) continue;
+            const k = I / (1 + d2 * inv) - floorK;
+            const i = (y * w + x) * 3;
+            L[i] += c[0] * k; L[i + 1] += c[1] * k; L[i + 2] += c[2] * k;
+          }
+        yield;
+      }
+      const col = this.col, glow = this.glow;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x, k = this.kind[i];
+          if (!k) continue;
+          const j = i * 3;
+          if (k === 1) {
+            const m = this.mul[i] * 255 * EXPO;
+            col.dset(x, y, [this.alb[j] * L[j] * m, this.alb[j + 1] * L[j + 1] * m, this.alb[j + 2] * L[j + 2] * m], 255, 10);
+          } else if (k === 2) {
+            col.dset(x, y, [this.emi[j], this.emi[j + 1], this.emi[j + 2]], 255, 8);
+            const g = this.eg[i];
+            if (g > 0) glow.set(x, y, ND.pack(this.emi[j] * g, this.emi[j + 1] * g, this.emi[j + 2] * g));
+          } else {
+            const u = this.alb[j], v = this.alb[j + 1];
+            let c = ND.mix([54, 46, 112], [10, 10, 30], Math.min(1, v * 1.3));
+            const refl = 0.34;
+            c = [c[0] + L[j] * 255 * refl, c[1] + L[j + 1] * 255 * refl, c[2] + L[j + 2] * 255 * refl];
+            const streak = ((x + (y * 0.7) | 0) % 13);
+            if (streak < 2) c = ND.mix(c, [150, 140, 220], 0.18);
+            if (v < 0.06) c = ND.mix(c, [150, 140, 220], 0.3);
+            col.dset(x, y, c, 255, 10);
+          }
+        }
+        if ((y & 31) === 31) yield;
+      }
+      for (const p of this.post) { p(); yield; }
+    }
+  }
+  ND.Facade = Facade;
+
+  // ---------------------------------------------------------------------------
+  // Interior painters (emissive)
+  function roomFn(r) {
+    const base = r.pick(ROOMS);
+    const curtain = r.chance(0.55), blinds = !curtain && r.chance(0.5);
+    const person = r.chance(0.22), pu = r.range(0.25, 0.75);
+    const lamp = r.chance(0.3);
+    return (x, y, u, v) => {
+      let c = ND.mix(base.top, base.bot, v);
+      if (lamp) c = ND.mix(c, [255, 250, 220], Math.max(0, 0.5 - Math.hypot(u - 0.5, v - 0.2) * 1.4));
+      if (curtain && (u < 0.2 || u > 0.8)) c = ND.scale(c, 0.62);
+      if (blinds && y % 2) c = ND.scale(c, 0.78);
+      if (person) {
+        const dx = (u - pu) * 6, hy = v - 0.35;
+        if ((dx * dx + (hy * 5) * (hy * 5) < 1.1) || (v > 0.55 && Math.abs(u - pu) < 0.22)) c = [70, 30, 40];
+      }
+      return c;
+    };
+  }
+
+  // Storefront interior with ceiling lights, back wall, silhouettes, tables.
+  function interior(F, x0, y0, w, h, r, style) {
+    const S = {
+      restaurant: { top: rgb('#ffe6a8'), bot: rgb('#ff9f45'), sil: [74, 30, 32] },
+      bar: { top: rgb('#ff8ad0'), bot: rgb('#a0306a'), sil: [44, 12, 44] },
+      lobby: { top: rgb('#ffe0a0'), bot: rgb('#ffa852'), sil: [80, 40, 30] },
+      shop: { top: rgb('#e8f6ff'), bot: rgb('#9fc4ea'), sil: [40, 44, 70] },
+      diner: { top: rgb('#fff8e0'), bot: rgb('#ffc8a0'), sil: [70, 40, 50] },
+      club: { top: rgb('#b070ff'), bot: rgb('#3a1c8a'), sil: [20, 8, 40] },
+    }[style];
+    const people = [];
+    const n = Math.floor(w / r.range(9, 14));
+    for (let i = 0; i < n; i++) {
+      if (r() < 0.25) continue;
+      people.push({
+        x: r.range(3, w - 4),
+        sit: r.chance(0.5),
+        hy: 0,
+        s: r.range(0.9, 1.15),
+      });
+    }
+    const tables = [];
+    if (style === 'restaurant' || style === 'diner' || style === 'bar')
+      for (let x = 6; x < w - 6; x += r.int(14, 20)) tables.push(x + r.int(-2, 2));
+    const shelves = style === 'bar' || style === 'shop' || style === 'club';
+    // rasterise tables + silhouettes into a mask once
+    const mask = new Uint8Array(w * h);
+    const mset = (x, y, v) => { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < w && y < h) mask[y * w + x] = v; };
+    for (const tx of tables) {
+      for (let x = tx - 4; x <= tx + 4; x++) mset(x, h - 9, 2);
+      for (let y = h - 8; y < h - 1; y++) mset(tx, y, 2);
+    }
+    for (const p of people) {
+      const headY = p.sit ? h - 15 * p.s : h - 23 * p.s;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (dx * dx + dy * dy <= 5.5) mset(p.x + dx, headY + dy, 1);
+      const shoulder = headY + 3, bottom = p.sit ? h - 6 : h - 1;
+      for (let ly = Math.ceil(shoulder); ly < bottom; ly++) {
+        const half = ly < shoulder + 2 ? 2.2 + (ly - shoulder) : 3.4 - (ly - shoulder) * 0.06;
+        for (let dx = -Math.floor(half); dx <= Math.floor(half); dx++) mset(p.x + dx, ly, 1);
+      }
+    }
+    const silC = [...S.sil, 0.12], tabC = [...ND.scale(S.sil, 0.9), 0.1];
+    const shelfY = Math.floor(h * 0.3);
+    F.emit(x0, y0, w, h, (x, y, u, v) => {
+      const lx = x - x0, ly = y - y0;
+      const m = mask[ly * w + lx];
+      if (m === 1) return silC;
+      if (m === 2) return tabC;
+      let c = ND.mix(S.top, S.bot, Math.pow(v, 0.8));
+      // ceiling lights
+      if (ly === 1 && (lx % 12 === 5 || lx % 12 === 6)) return [255, 252, 230, 0.9];
+      if (ly <= 3) c = ND.mix(c, [255, 250, 225], 0.25 * (1 - ly / 4));
+      // back wall shelf / bottles
+      if (shelves && (ly === shelfY || ly === shelfY + 6)) c = ND.scale(c, 0.55);
+      if (shelves && (ly === shelfY - 1 || ly === shelfY + 5) && ND.hash(lx, ly, 3) < 0.55) {
+        const b = [[120, 255, 180], [255, 220, 120], [255, 120, 160], [140, 200, 255]][Math.floor(ND.hash(lx, 7) * 4)];
+        c = ND.mix(c, b, 0.7);
+      }
+      if (!shelves && ly === shelfY && lx % 26 < 10) c = ND.scale(c, 0.7); // picture frames
+      if (ly >= h - 2) c = ND.scale(c, 0.7);
+      return c;
+    }, 0.4);
+    // light the surroundings (awning underside, sidewalk)
+    const lc = ND.mix(S.top, S.bot, 0.5);
+    F.light(x0 + 2, y0 + 2, x0 + w - 2, y0 + 2, lc, 0.9, 12);
+    F.light(x0 + 2, y0 + h - 1, x0 + w - 2, y0 + h - 1, lc, 0.7, 10);
+    F.pools.push({ x0, x1: x0 + w, c: lc, s: style === 'club' ? 0.5 : 0.8 });
+  }
+
+  // Door in the storefront.
+  function door(F, x, y, w, h, trim, r) {
+    F.surf(x - 1, y - 1, w + 2, h + 1, trim, 1.15);
+    const lit = r.chance(0.8);
+    if (lit) F.emit(x, y, w, h, (xx, yy, u, v) => (u > 0.45 && u < 0.55 ? [120, 70, 60] : ND.mix([255, 236, 190], [255, 170, 90], v)), 0.5);
+    else F.glass(x, y, w, h);
+  }
+
+  // Striped fabric awning with scalloped valance.
+  function awning(F, x, y, w, h, colA, colB, stripe = 6) {
+    for (let yy = 0; yy < h; yy++) {
+      for (let xx = 0; xx < w; xx++) {
+        const band = Math.floor((xx + Math.floor(yy * 0.5)) / stripe) % 2;
+        const alb = band ? colA : colB;
+        let m = 0.8 + (yy / h) * 0.45;
+        if (yy === 0) m = 1.3;
+        F.surfPx(x + xx, y + yy, alb, m);
+      }
+    }
+    // valance scallops
+    for (let xx = 0; xx < w; xx++) {
+      const s = Math.floor(xx / stripe) % 2 ? colA : colB;
+      const dip = (xx % stripe) > 0 && (xx % stripe) < stripe - 1 ? 2 : 1;
+      for (let k = 0; k < dip; k++) F.surfPx(x + xx, y + h + k, s, 1.05);
+    }
+  }
+
+  // Box sign (e.g. HOTEL) with neon border.
+  function boxSign(F, text, cx, y, neonName, opts = {}) {
+    const [core, tube] = ND.NEON[neonName];
+    const letterCore = opts.letterCore || rgb('#ffffff');
+    const mk = ND.textMask(text, { scale: opts.scale || 2, gap: opts.gap || 2 });
+    const padX = opts.padX || 6, padY = opts.padY || 4;
+    const bw = mk.w + padX * 2, bh = mk.h + padY * 2;
+    const x = Math.round(cx - bw / 2);
+    const bg = opts.bg || ND.scale(tube, 0.2);
+    F.emit(x, y, bw, bh, (xx, yy, u, v) => ND.mix(ND.scale(bg, 1.25), bg, v), 0);
+    F.light(x, y + bh / 2, x + bw, y + bh / 2, tube, 1.15, 18);
+    F.post.push(() => {
+      const pts = [[x, y], [x + bw - 1, y], [x + bw - 1, y + bh - 1], [x, y + bh - 1], [x, y]];
+      ND.neonPath(F.col, F.glow, pts, core, tube);
+      ND.neonMask(F.col, F.glow, mk, x + padX, y + padY, letterCore, tube);
+    });
+    return { x, y, w: bw, h: bh };
+  }
+
+  // Vertical blade sign (e.g. COLONY).
+  function bladeSign(F, text, cx, y, neonLetters, neonBorder, opts = {}) {
+    const [lc, lt] = ND.NEON[neonLetters];
+    const [bc, bt] = ND.NEON[neonBorder];
+    const mk = ND.textMask(text, { vertical: true, scale: 2, gap: opts.gap || 4 });
+    const pad = 5;
+    const bw = mk.w + pad * 2, bh = mk.h + pad * 2 + 2;
+    const x = Math.round(cx - bw / 2);
+    F.emit(x, y, bw, bh, (xx, yy, u, v) => ND.mix([28, 26, 84], [14, 14, 50], v), 0);
+    F.light(x, y, x, y + bh, bt, 1.1, 16);
+    F.light(x + bw, y, x + bw, y + bh, bt, 1.1, 16);
+    F.light(cx, y, cx, y + bh, lt, 0.6, 10);
+    F.post.push(() => {
+      const pts = [[x, y], [x + bw - 1, y], [x + bw - 1, y + bh - 1], [x, y + bh - 1], [x, y]];
+      ND.neonPath(F.col, F.glow, pts, bc, bt);
+      const pts2 = [[x - 2, y - 2], [x + bw + 1, y - 2], [x + bw + 1, y + bh + 1], [x - 2, y + bh + 1], [x - 2, y - 2]];
+      ND.neonPath(F.col, F.glow, pts2, ND.mix(bc, bt, 0.4), bt, { halo: false });
+      ND.neonMask(F.col, F.glow, mk, x + pad, y + pad + 1, lc, lt);
+    });
+    return { x, y, w: bw, h: bh };
+  }
+
+  // Neon palm-tree sculpture sign.
+  function neonPalm(F, x, yBase, hgt, neonName) {
+    const [core, tube] = ND.NEON[neonName];
+    const top = [x + 5, yBase - hgt];
+    F.light(x, yBase, top[0], top[1], tube, 1.0, 16);
+    F.post.push(() => {
+      const trunk = [];
+      for (let i = 0; i <= 8; i++) {
+        const t = i / 8;
+        trunk.push([x + Math.sin(t * 1.6) * 5, yBase - t * hgt]);
+      }
+      ND.neonPath(F.col, F.glow, trunk, core, tube);
+      const fr = [[-15, 6], [-13, -3], [-6, -8], [5, -8], [13, -3], [15, 6], [-9, 10], [9, 10]];
+      for (const [fx, fy] of fr) {
+        const pts = [];
+        for (let i = 0; i <= 6; i++) {
+          const t = i / 6;
+          pts.push([top[0] + fx * t, top[1] + fy * t - Math.sin(t * Math.PI) * 5 + t * t * 5]);
+        }
+        ND.neonPath(F.col, F.glow, pts, core, tube);
+      }
+    });
+  }
+
+  // Horizontal neon line across a facade.
+  function neonLine(F, x0, x1, y, neonName, I = 0.9) {
+    const [core, tube] = ND.NEON[neonName];
+    F.light(x0, y, x1, y, tube, I, 13);
+    F.post.push(() => ND.neonPath(F.col, F.glow, [[x0, y], [x1, y]], core, tube));
+  }
+  function neonV(F, x, y0, y1, neonName, I = 0.9) {
+    const [core, tube] = ND.NEON[neonName];
+    F.light(x, y0, x, y1, tube, I, 13);
+    F.post.push(() => ND.neonPath(F.col, F.glow, [[x, y0], [x, y1]], core, tube));
+  }
+
+  // Upper-floor window with eyebrow ledge.
+  function upperWindow(F, x, y, w, h, trim, r, litP, deco) {
+    if (deco !== 'none') {
+      F.surf(x - 2, y - 4, w + 4, 1, trim, 1.35);
+      F.surf(x - 2, y - 3, w + 4, 1, trim, 0.62);
+      F.mulRect(x - 1, y - 2, w + 2, 1, 0.8);
+    }
+    F.surf(x, y, w, h, trim, 1.05);
+    F.mulRect(x, y, 1, h, 1.1);
+    const lit = r() < litP;
+    if (lit) F.emit(x + 1, y + 1, w - 2, h - 2, roomFn(r), 0.32);
+    else F.glass(x + 1, y + 1, w - 2, h - 2);
+    if (w >= 9) F.surf(x + (w >> 1), y + 1, 1, h - 2, trim, 0.95);
+    F.surf(x + 1, y + Math.round(h * 0.33), w - 2, 1, trim, 0.95);
+    F.surf(x - 1, y + h, w + 2, 1, trim, 1.3);
+    F.mulRect(x - 1, y + h + 1, w + 2, 2, 0.75);
+    if (lit) {
+      F.light(x + w / 2, y + h / 2, x + w / 2, y + h / 2, [255, 190, 110], 0.22, 7);
+      if (r() < 0.12) F.anims.push({ type: 'tv', x: x + 1, y: y + 1, w: w - 2, h: h - 2, seed: r() * 1000 });
+    }
+    return lit;
+  }
+
+  function regionWindows(F, x0, x1, fy, fh, trim, r, litP, ww, deco) {
+    const sp = r.int(5, 8);
+    const rw = x1 - x0;
+    const n = Math.max(0, Math.floor((rw + sp) / (ww + sp)));
+    if (!n) return;
+    const tot = n * ww + (n - 1) * sp;
+    let x = Math.round(x0 + (rw - tot) / 2);
+    const wy = fy + Math.round(fh * 0.24), wh = Math.round(fh * 0.54);
+    for (let i = 0; i < n; i++, x += ww + sp) upperWindow(F, x, wy, ww, wh, trim, r, litP, deco);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Building types
+  // ---------------------------------------------------------------------------
+
+  // Art Deco hotel: parapet, stepped crown, window bays, fin with blade sign,
+  // canopy with box sign, lit restaurant / lobby ground floor.
+  function* genHotel(spec) {
+    const r = ND.rng(spec.seed);
+    const pal = spec.pal || PALETTES[r.pick(PAL_KEYS)];
+    const wall = pal.wall, trim = pal.trim;
+    const w = spec.w || r.int(170, 250);
+    const n = spec.floors || r.int(2, 4);
+    const fh = spec.floorH || r.int(36, 40);
+    const gh = spec.groundH || r.int(62, 68);
+    const ph = spec.parapetH || r.int(12, 20);
+    let crownH = spec.crownH != null ? spec.crownH : r.chance(0.6) ? r.int(10, 22) : 0;
+    if (spec.roofSign || (spec.name && !spec.blade && !spec.box)) crownH = Math.max(crownH, 12);
+    const h = crownH + ph + n * fh + gh;
+    const F = new Facade(w, h);
+    const roofY = crownH, floorsY = crownH + ph, groundY = floorsY + n * fh;
+    const neonA = spec.neonA || r.pick(['pink', 'cyan', 'magenta', 'blue', 'purple']);
+    const neonB = spec.neonB || r.pick(['pink', 'cyan', 'magenta', 'orange', 'yellow']);
+    const finX = spec.finX != null ? spec.finX : Math.round(w * r.range(0.35, 0.65));
+    const finW = spec.finW || 14;
+
+    // base wall + corners
+    F.surf(0, roofY, w, h - roofY, wall);
+    F.mulRect(0, roofY, 2, h - roofY, 0.72);
+    F.mulRect(w - 2, roofY, 2, h - roofY, 0.84);
+
+    // crown (stepped Deco tower over the fin)
+    if (crownH) {
+      const cw = Math.max(finW + 16, Math.round(w * 0.26));
+      const cx0 = Math.round(finX - cw / 2);
+      const s1 = Math.round(crownH * 0.45);
+      F.surf(cx0, s1, cw, crownH - s1 + 1, trim, 1.0);
+      F.surf(cx0 + 4, 0, cw - 8, s1 + 1, trim, 1.05);
+      F.mulRect(cx0, s1, cw, 1, 1.3);
+      F.mulRect(cx0 + 4, 0, cw - 8, 1, 1.3);
+      for (let x = cx0 + 7; x < cx0 + cw - 7; x += 4) F.mulRect(x, 2, 1, crownH - 2, 0.72);
+      if (r.chance(0.7)) {
+        const [c, t] = ND.NEON[neonA];
+        F.light(cx0 + 4, 0, cx0 + cw - 4, 0, t, 0.8, 10);
+        F.post.push(() => ND.neonPath(F.col, F.glow, [[cx0, crownH], [cx0, s1], [cx0 + 4, s1], [cx0 + 4, 0], [cx0 + cw - 5, 0], [cx0 + cw - 5, s1], [cx0 + cw - 1, s1], [cx0 + cw - 1, crownH]], c, t));
+      }
+    }
+
+    // parapet: cap, grooves ("speed lines"), cornice
+    F.mulRect(0, roofY, w, 1, 1.3);
+    F.mulRect(0, roofY + 1, w, 1, 0.72);
+    for (let k = 0, y = roofY + 4; y < floorsY - 3; y += 3, k++) F.mulRect(3, y, w - 6, 1, 0.74);
+    F.surf(0, floorsY - 2, w, 2, trim, 1.2);
+    F.mulRect(0, floorsY, w, 2, 0.62);
+    if (spec.roofNeon !== false && r.chance(0.55)) neonLine(F, 1, w - 2, floorsY - 3, neonA, 0.8);
+
+    // fin (vertical feature) and edge pilasters
+    const fx0 = Math.round(finX - finW / 2);
+    F.surf(fx0, roofY - (crownH ? 0 : 4), finW, groundY - roofY + (crownH ? 0 : 4), trim, 1.02);
+    F.mulRect(fx0, roofY, 1, groundY - roofY, 1.25);
+    F.mulRect(fx0 + finW - 1, roofY, 1, groundY - roofY, 0.68);
+    F.surf(0, floorsY, 5, groundY - floorsY, trim, 1.0);
+    F.mulRect(4, floorsY, 1, groundY - floorsY, 0.7);
+    F.surf(w - 5, floorsY, 5, groundY - floorsY, trim, 0.92);
+
+    yield;
+    // floors
+    const litP = spec.litP != null ? spec.litP : r.range(0.25, 0.55);
+    const ww = r.pick([10, 12, 14, 16]);
+    const deco = r.pick(['eyebrow', 'eyebrow', 'none']);
+    for (let f = 0; f < n; f++) {
+      const fy = floorsY + f * fh;
+      if (f > 0) F.mulRect(5, fy, w - 10, 1, 0.84);
+      regionWindows(F, 7, fx0 - 3, fy, fh, trim, r, litP, ww, deco);
+      regionWindows(F, fx0 + finW + 3, w - 7, fy, fh, trim, r, litP, ww, deco);
+      yield;
+    }
+    // horizontal neon eyebrow on one floor
+    if (spec.bandNeon !== false && r.chance(0.6)) {
+      const f = r.int(0, n - 1), fy = floorsY + f * fh + Math.round(fh * 0.24) - 5;
+      const side = r() < 0.5;
+      neonLine(F, side ? 6 : fx0 + finW + 2, side ? fx0 - 3 : w - 6, fy, neonB, 0.8);
+    }
+
+    // ground floor
+    const cy = groundY + 3, ch = 6;
+    const glassY = cy + ch + 4, glassH = h - 4 - glassY;
+    // plinth
+    F.surf(0, h - 4, w, 4, ND.scale(wall, 0.55), 1);
+    F.mulRect(0, h - 4, w, 1, 1.6);
+    // storefront
+    const style = spec.store || r.pick(['restaurant', 'restaurant', 'lobby', 'bar', 'diner']);
+    const doorW = 12, doorX = Math.round(finX - doorW / 2);
+    const segs = [[6, doorX - 3], [doorX + doorW + 3, w - 6]];
+    for (const [a, b] of segs) {
+      if (b - a < 8) continue;
+      yield;
+      interior(F, a, glassY, b - a, glassH, r, style);
+      // mullions
+      const step = r.int(18, 26);
+      for (let x = a + step; x < b - 4; x += step) F.surf(x, glassY, 2, glassH, trim, 0.62);
+      F.surf(a, glassY + Math.round(glassH * 0.22), b - a, 1, trim, 0.6);
+      F.surf(a - 1, glassY - 1, b - a + 2, 1, trim, 0.85);
+      F.surf(a - 1, glassY, 1, glassH, trim, 0.8);
+      F.surf(b, glassY, 1, glassH, trim, 0.8);
+    }
+    door(F, doorX, glassY + 6, doorW, glassH - 6, trim, r);
+    yield;
+    // canopy / marquee
+    const cx0 = spec.canopyX0 != null ? spec.canopyX0 : 3, cx1 = w - 3;
+    F.surf(cx0, cy, cx1 - cx0, ch, trim, 1.0);
+    F.mulRect(cx0, cy, cx1 - cx0, 1, 1.35);
+    F.mulRect(cx0, cy + ch - 2, cx1 - cx0, 1, 0.8);
+    F.mulRect(cx0, cy + ch, cx1 - cx0, 3, 0.55);
+    // soffit lights
+    F.emit(cx0 + 2, cy + ch, cx1 - cx0 - 4, 1, (x) => (x % 9 === 0 ? [255, 240, 200] : null), 0.9);
+    const canopyNeon = spec.canopyNeon || neonA;
+    neonLine(F, cx0, cx1 - 1, cy + ch - 1, canopyNeon, 1.1);
+
+    // signs (random hotels get a name: vertical blade, box on the canopy or letters on the roof)
+    if (!spec.blade && !spec.box && !spec.roofSign && spec.name) {
+      const avail = groundY - roofY - 22;
+      const nmax = Math.floor((avail - 12 + 4) / 18);
+      const mode = r();
+      if (mode < 0.5 && spec.name.length <= nmax) {
+        spec.blade = spec.name;
+        spec.bladeLetters = r.pick(['cyan', 'white', 'pink', 'yellow']);
+        spec.bladeBorder = r.pick(['blue', 'pink', 'magenta', 'cyan', 'purple']);
+        if (r() < 0.6) spec.box = 'HOTEL';
+      } else if (mode < 0.8 || ph < 16) {
+        spec.box = spec.name;
+        spec.boxNeon = r.pick(['pink', 'cyan', 'magenta', 'yellow', 'white', 'orange', 'purple']);
+      } else {
+        spec.roofSign = spec.name;
+      }
+    }
+    if (spec.roofSign) {
+      const [c, t] = ND.NEON[r.pick(['pink', 'cyan', 'yellow', 'magenta', 'orange'])];
+      const mk = ND.textMask(spec.roofSign, { scale: 2, gap: 3 });
+      const sx0 = Math.round(finX - mk.w / 2), sy0 = roofY - mk.h + 6;
+      F.light(sx0, sy0 + 7, sx0 + mk.w, sy0 + 7, t, 1.1, 16);
+      F.post.push(() => {
+        for (let x = sx0; x < sx0 + mk.w; x += 6) for (let y = sy0 + mk.h; y < roofY + 2; y++) F.col.set(x, y, ND.pack(40, 30, 60));
+        ND.neonMask(F.col, F.glow, mk, sx0, sy0, c, t);
+      });
+    }
+    if (spec.blade) {
+      const y0 = spec.bladeY != null ? spec.bladeY : roofY + 4;
+      bladeSign(F, spec.blade, finX, y0, spec.bladeLetters || 'cyan', spec.bladeBorder || 'blue');
+    }
+    if (spec.box) {
+      const mk = ND.textMask(spec.box, { scale: 2, gap: 2 });
+      boxSign(F, spec.box, finX, cy - mk.h - 9, spec.boxNeon || 'pink');
+    }
+    if (spec.neonPalm) neonPalm(F, spec.neonPalm, h - 6, 44, 'pink');
+
+    // crowd spots in front of the ground floor
+    for (let x = 10; x < w - 10; x += r.int(14, 30)) if (r() < 0.65) F.crowd.push(x);
+    F.lamps = spec.lamps || [];
+
+    yield* F.shade();
+    yield;
+    return pack(F, w, h, spec);
+  }
+
+  // Low bar/club: two floors, script neon sign, striped awnings, vertical tube.
+  function* genBar(spec) {
+    const r = ND.rng(spec.seed);
+    const pal = spec.pal || PALETTES[r.pick(PAL_KEYS)];
+    const wall = pal.wall, trim = pal.trim;
+    const w = spec.w || r.int(120, 170);
+    const n = spec.floors || r.int(1, 2);
+    const fh = 38, gh = spec.groundH || 64, ph = spec.parapetH || r.int(14, 22);
+    const h = ph + n * fh + gh;
+    const F = new Facade(w, h);
+    const floorsY = ph, groundY = ph + n * fh;
+    const neonA = spec.neonA || r.pick(['cyan', 'blue', 'green']);
+    const neonB = spec.neonB || r.pick(['pink', 'red', 'magenta']);
+
+    F.surf(0, 0, w, h, wall);
+    F.mulRect(0, 0, 2, h, 0.72);
+    F.mulRect(w - 2, 0, 2, h, 0.84);
+    // streamline parapet with rounded right corner
+    F.mulRect(0, 0, w, 1, 1.3);
+    for (let y = 3; y < ph - 2; y += 3) F.mulRect(0, y, w, 1, 0.78);
+    F.surf(0, ph - 2, w, 2, trim, 1.2);
+    F.mulRect(0, ph, w, 2, 0.62);
+    for (let y = 0; y < 8; y++) for (let x = w - 8 + y; x < w; x++) F.clear(x, y, 1, 1);
+    // diagonal roof neon like the reference's pink streamline accent
+    if (spec.diagNeon !== false) {
+      const [c, t] = ND.NEON[neonB];
+      F.light(w * 0.25, ph - 4, w - 2, 1, t, 0.9, 14);
+      F.post.push(() => ND.neonPath(F.col, F.glow, [[Math.round(w * 0.25), ph - 4], [w - 9, ph - 4], [w - 2, 1]], c, t));
+    }
+
+    // vertical tube on the left pilaster
+    F.surf(0, ph, 7, groundY - ph + 8, trim, 1.0);
+    neonV(F, 3, ph + 2, groundY + 20, neonA, 1.2);
+
+    const litP = r.range(0.3, 0.6);
+    for (let f = 0; f < n; f++) {
+      const fy = floorsY + f * fh;
+      regionWindows(F, 10, w - 6, fy, fh, trim, r, litP, r.pick([12, 14]), 'eyebrow');
+      yield;
+    }
+
+    // ground floor
+    const style = spec.store || r.pick(['bar', 'club', 'bar']);
+    const glassY = groundY + 22, glassH = h - 4 - glassY;
+    F.surf(0, h - 4, w, 4, ND.scale(wall, 0.5), 1);
+    F.mulRect(0, h - 4, w, 1, 1.6);
+    const doorX = w - r.int(24, 34);
+    interior(F, 9, glassY, doorX - 12, glassH, r, style);
+    yield;
+    for (let x = 9 + 20; x < doorX - 6; x += 20) F.surf(x, glassY, 2, glassH, trim, 0.6);
+    door(F, doorX, glassY + 4, 12, glassH - 4, trim, r);
+    if (doorX + 16 < w - 6) interior(F, doorX + 16, glassY, w - 6 - doorX - 16, glassH, r, style);
+    // awning
+    const [aa, ab] = r.pick([
+      [A('#ff5fa8'), A('#ffe0f0')],
+      [A('#40d0d0'), A('#e0ffff')],
+      [A('#ff4a60'), A('#fff0f0')],
+      [A('#8a5cff'), A('#f0e8ff')],
+    ]);
+    awning(F, 8, glassY - 11, w - 14, 7, aa, ab, 6);
+    neonLine(F, 8, w - 7, glassY - 3, neonB, 0.9);
+
+    // big script sign on the wall above the awning
+    const text = spec.sign || r.pick(['BAR', 'CLUB', 'DISCO', 'LOUNGE', 'JAZZ']);
+    let scale = text.length <= 3 ? 3 : 2;
+    let mk = ND.textMask(text, { scale, gap: scale, italic: 4 });
+    if (mk.w > w - 16) { scale = 1; mk = ND.textMask(text, { scale: 1, gap: 1, italic: 2 }); }
+    const sx = Math.round((w - mk.w) / 2) + (spec.signDX || 0), sy = groundY + 22 - 14 - mk.h;
+    const [sc, st] = ND.NEON[neonB];
+    F.light(sx, sy + mk.h / 2, sx + mk.w, sy + mk.h / 2, st, 1.2, 18);
+    const flick = { type: 'flicker', x: sx - 2, y: sy - 2, w: mk.w + 4, h: mk.h + 4, rate: r.range(0.02, 0.06), seed: r() * 100 };
+    F.post.push(() => {
+      flick.off = captureOff(F, flick, () => ND.neonMask(offPB, null, mk, 2, 2, sc, st, { on: false }));
+      ND.neonMask(F.col, F.glow, mk, sx, sy, sc, st);
+    });
+    F.anims.push(flick);
+
+    for (let x = 12; x < w - 10; x += r.int(14, 24)) if (r() < 0.8) F.crowd.push(x);
+    yield* F.shade();
+    yield;
+    return pack(F, w, h, spec);
+  }
+
+  // Shop row: one or two floors, big parapet sign.
+  function* genShop(spec) {
+    const r = ND.rng(spec.seed);
+    const pal = spec.pal || PALETTES[r.pick(PAL_KEYS)];
+    const wall = pal.wall, trim = pal.trim;
+    const w = spec.w || r.int(110, 170);
+    const n = r.int(0, 1);
+    const fh = 38, gh = 62, ph = r.int(26, 32);
+    const h = ph + n * fh + gh;
+    const F = new Facade(w, h);
+    const groundY = ph + n * fh;
+    const neon = spec.neon || r.pick(['pink', 'cyan', 'yellow', 'orange', 'green', 'magenta', 'red']);
+    F.surf(0, 0, w, h, wall);
+    F.mulRect(0, 0, 2, h, 0.72);
+    F.mulRect(w - 2, 0, 2, h, 0.84);
+    F.mulRect(0, 0, w, 1, 1.3);
+    F.surf(0, ph - 2, w, 2, trim, 1.2);
+    F.mulRect(0, ph, w, 2, 0.62);
+    // sign panel on parapet
+    const text = spec.sign || r.pick(['LIQUOR', 'PIZZA', 'VIDEO', 'ARCADE', 'DINER', 'CAFE', 'MUSIC', 'RECORDS', 'TATTOO', 'DONUTS', 'SURF']);
+    const [c, t] = ND.NEON[neon];
+    let mk = ND.textMask(text, { scale: 2, gap: 2 });
+    if (mk.w > w - 10) mk = ND.textMask(text, { scale: 1, gap: 1 });
+    const sx = Math.round((w - mk.w) / 2), sy = Math.round((ph - mk.h) / 2) - 1;
+    F.light(sx, sy + 7, sx + mk.w, sy + 7, t, 1.1, 16);
+    const flick = { type: 'flicker', x: sx - 2, y: sy - 2, w: mk.w + 4, h: mk.h + 4, rate: r.range(0.01, 0.05), seed: r() * 100 };
+    F.post.push(() => {
+      flick.off = captureOff(F, flick, () => ND.neonMask(offPB, null, mk, 2, 2, c, t, { on: false }));
+      ND.neonMask(F.col, F.glow, mk, sx, sy, c, t);
+    });
+    F.anims.push(flick);
+    for (let f = 0; f < n; f++) regionWindows(F, 6, w - 6, ph + f * fh, fh, trim, r, 0.4, 12, 'eyebrow');
+    // storefront
+    const glassY = groundY + 16, glassH = h - 4 - glassY;
+    F.surf(0, h - 4, w, 4, ND.scale(wall, 0.5), 1);
+    F.mulRect(0, h - 4, w, 1, 1.6);
+    const style = r.pick(['shop', 'diner', 'shop', 'restaurant']);
+    const doorX = r.chance(0.5) ? 10 : w - 24;
+    const a0 = doorX < w / 2 ? doorX + 16 : 8, a1 = doorX < w / 2 ? w - 8 : doorX - 4;
+    yield;
+    interior(F, a0, glassY, a1 - a0, glassH, r, style);
+    yield;
+    for (let x = a0 + 22; x < a1 - 6; x += 22) F.surf(x, glassY, 2, glassH, trim, 0.6);
+    door(F, doorX, glassY + 4, 12, glassH - 4, trim, r);
+    if (r.chance(0.6)) {
+      const [aa, ab] = r.pick([[A('#ff5fa8'), A('#ffe0f0')], [A('#40c0e0'), A('#f0ffff')], [A('#ffb040'), A('#fff4e0')], [A('#50e090'), A('#f0fff4')]]);
+      awning(F, 4, glassY - 11, w - 8, 7, aa, ab, 5);
+    } else {
+      F.surf(4, glassY - 6, w - 8, 3, trim, 1.1);
+      neonLine(F, 4, w - 5, glassY - 3, neon, 0.9);
+    }
+    for (let x = 12; x < w - 10; x += r.int(16, 30)) if (r() < 0.4) F.crowd.push(x);
+    yield* F.shade();
+    yield;
+    return pack(F, w, h, spec);
+  }
+
+  // Roadside motel with tall pole sign, chasing-bulb arrow and VACANCY.
+  function* genMotel(spec) {
+    const r = ND.rng(spec.seed);
+    const pal = spec.pal || PALETTES[r.pick(PAL_KEYS)];
+    const wall = pal.wall, trim = pal.trim;
+    const w = spec.w || r.int(170, 220);
+    const bh = 38 + 60;
+    const signH = 96;
+    const h = bh + signH;
+    const F = new Facade(w, h);
+    const by = h - bh;
+    F.surf(0, by, w, bh, wall);
+    F.mulRect(0, by, w, 1, 1.3);
+    F.surf(0, by + 1, w, 3, trim, 1.1);
+    F.mulRect(0, by + 4, w, 2, 0.6);
+    // walkway balcony
+    const balY = by + 38;
+    F.surf(0, balY, w, 3, trim, 1.2);
+    F.mulRect(0, balY + 3, w, 2, 0.55);
+    for (let x = 2; x < w; x += 4) F.surf(x, balY - 8, 1, 8, trim, 0.9);
+    F.surf(0, balY - 9, w, 1, trim, 1.2);
+    // room doors & windows (both floors)
+    for (const fy of [by + 8, balY + 10]) {
+      for (let x = 10; x < w - 20; x += 30) {
+        F.surf(x, fy, 10, 20, ND.scale(trim, 0.9), 0.9);
+        const lit = r() < 0.45;
+        if (lit) F.emit(x + 14, fy + 2, 10, 9, roomFn(r), 0.35);
+        else F.glass(x + 14, fy + 2, 10, 9);
+        F.surf(x + 13, fy + 11, 12, 1, trim, 1.2);
+        F.emit(x + 4, fy - 3, 2, 1, [255, 220, 150], 0.9);
+        F.light(x + 5, fy - 3, x + 5, fy - 3, [255, 200, 120], 0.5, 8);
+      }
+    }
+    F.surf(0, h - 4, w, 4, ND.scale(wall, 0.5), 1);
+    F.mulRect(0, h - 4, w, 1, 1.6);
+    yield;
+    // lobby office at right
+    interior(F, w - 40, balY + 10, 30, h - 4 - balY - 10, r, 'lobby');
+    yield;
+
+    // pole sign
+    const px = r.int(20, 40);
+    F.surf(px, 10, 4, h - 14, A('#8080a0'), 0.9);
+    F.mulRect(px + 3, 10, 1, h - 14, 0.6);
+    const text = spec.sign || 'MOTEL';
+    const neon = r.pick(['pink', 'cyan', 'yellow', 'red']);
+    const box = bladeLike(F, text, px + 2, 4, neon, r);
+    // arrow with chasing bulbs
+    const ay = box.y + box.h + 4;
+    const ax0 = px - 14, ax1 = px + 44;
+    const arrow = [[ax0 + 10, ay], [ax1, ay], [ax1, ay + 10], [ax0 + 10, ay + 10], [ax0 + 10, ay + 14], [ax0, ay + 5], [ax0 + 10, ay - 4], [ax0 + 10, ay]];
+    const arrowCol = r.pick([[255, 70, 110], [255, 60, 60], [80, 220, 255], [255, 120, 40]]);
+    F.emit(ax0, ay - 4, ax1 - ax0 + 1, 19, (x, y) => {
+      const lx = x - ax0, ly = y - ay;
+      const inside = lx < 10 ? Math.abs(ly - 5) <= lx * 0.9 : ly >= 0 && ly <= 10;
+      if (!inside) return null;
+      const edge = lx >= 10 && (ly === 0 || ly === 10 || x === ax1);
+      const c = ND.mix(arrowCol, [255, 255, 255], edge ? 0.5 : 0.08 + 0.12 * Math.sin(lx * 0.5));
+      return [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85, 0.55];
+    }, 0.55);
+    F.light(ax0, ay + 5, ax1, ay + 5, arrowCol, 1.2, 18);
+    const arrowText = r.pick(['OPEN', 'TV', 'POOL', 'COLOR TV']);
+    const am = ND.textMask(arrowText, { small: true, gap: 1 });
+    F.post.push(() => {
+      const tx = Math.round(ax0 + 12 + (ax1 - ax0 - 12 - am.w) / 2), ty = ay + 3;
+      for (let y = 0; y < am.h; y++) for (let x = 0; x < am.w; x++) if (am.m[y * am.w + x]) { F.col.set(tx + x, ty + y, ND.pack(255, 255, 240)); F.glow.set(tx + x, ty + y, ND.pack(255, 240, 220)); }
+    });
+    const bulbs = [];
+    for (let i = 0; i + 1 < arrow.length; i++) {
+      const [x0, y0] = arrow[i], [x1, y1] = arrow[i + 1];
+      const len = Math.hypot(x1 - x0, y1 - y0), steps = Math.max(1, Math.round(len / 3));
+      for (let k = 0; k < steps; k++) bulbs.push([Math.round(x0 + ((x1 - x0) * k) / steps), Math.round(y0 + ((y1 - y0) * k) / steps)]);
+    }
+    const [bc, bt] = ND.NEON.yellow;
+    F.light(ax0, ay + 5, ax1, ay + 5, bt, 0.9, 16);
+    F.post.push(() => {
+      for (const [x, y] of bulbs) F.col.set(x, y, ND.pack(120, 90, 40));
+    });
+    F.anims.push({ type: 'chase', pts: bulbs, color: bc, glow: bt, speed: 12 });
+    // vacancy
+    const vy = ay + 18;
+    const [vc, vt] = ND.NEON.red;
+    const vm = ND.textMask(r.chance(0.6) ? 'VACANCY' : 'NO VACANCY', { small: true, gap: 1 });
+    F.emit(px - 4, vy - 2, vm.w + 4, vm.h + 4, [30, 10, 20], 0);
+    const flick = { type: 'flicker', x: px - 3, y: vy - 1, w: vm.w + 2, h: vm.h + 2, rate: 0.15, seed: r() * 100, slow: true };
+    F.post.push(() => {
+      flick.off = captureOff(F, flick, () => ND.neonMask(offPB, null, vm, 1, 1, vc, vt, { on: false, halo: false }));
+      ND.neonMask(F.col, F.glow, vm, px - 2, vy, vc, vt, { halo: false });
+    });
+    F.anims.push(flick);
+    for (let x = w - 40; x < w - 10; x += 14) if (r() < 0.5) F.crowd.push(x);
+    yield* F.shade();
+    yield;
+    return pack(F, w, h, spec);
+  }
+
+  function bladeLike(F, text, cx, y, neonName, r) {
+    const [c, t] = ND.NEON[neonName];
+    const mk = ND.textMask(text, { vertical: true, scale: 2, gap: 3 });
+    const bw = mk.w + 10, bh = mk.h + 10;
+    const x = Math.round(cx - bw / 2);
+    F.emit(x, y, bw, bh, (xx, yy, u, v) => ND.mix([60, 20, 60], [30, 10, 40], v), 0);
+    F.light(x + bw / 2, y, x + bw / 2, y + bh, t, 1.3, 20);
+    F.post.push(() => {
+      ND.neonPath(F.col, F.glow, [[x, y], [x + bw - 1, y], [x + bw - 1, y + bh - 1], [x, y + bh - 1], [x, y]], c, t);
+      ND.neonMask(F.col, F.glow, mk, x + 5, y + 5, [255, 255, 255], t);
+    });
+    return { x, y, w: bw, h: bh };
+  }
+
+  // Captures the facade pixels behind a flicker region, then paints the "off" sign.
+  let offPB = null;
+  function captureOff(F, fl, paint) {
+    offPB = new ND.PB(fl.w, fl.h);
+    for (let y = 0; y < fl.h; y++)
+      for (let x = 0; x < fl.w; x++) offPB.set(x, y, F.col.get(fl.x + x, fl.y + y));
+    paint();
+    const c = offPB.canvas();
+    offPB = null;
+    return c;
+  }
+
+  function pack(F, w, h, spec) {
+    return {
+      spr: ND.sprite(F.col, F.glow),
+      w,
+      h,
+      y: BASE - h,
+      anims: F.anims,
+      pools: F.pools,
+      crowd: F.crowd,
+      kind: spec.kind,
+    };
+  }
+
+  ND.NAMES = {
+    hotel: ['OCEAN', 'LUNA', 'STARLITE', 'PALMS', 'CORAL', 'NEPTUNE', 'AVALON', 'SUNSET', 'TROPICS', 'MARLIN', 'FLAMINGO',
+      'PARADISE', 'BREEZE', 'ORCHID', 'SHORE', 'LAGUNA', 'AZURE', 'CABANA', 'NOVA', 'RIVIERA', 'SEABIRD', 'MOONLITE', 'DELMAR', 'ISLA'],
+    bar: ['BAR', 'CLUB', 'DISCO', 'LOUNGE', 'JAZZ', 'COCKTAILS', 'TIKI', 'NEON', 'SALSA', 'RUMBA', 'MAMBO', 'VICE'],
+    shop: ['LIQUOR', 'PIZZA', 'VIDEO', 'ARCADE', 'DINER', 'CAFE', 'MUSIC', 'RECORDS', 'TATTOO', 'DONUTS', 'SURF', 'CUBAN', 'GELATO', 'TACOS', 'ARCADE 24H'],
+  };
+
+  ND.BUILDING_GEN = { hotel: genHotel, bar: genBar, shop: genShop, motel: genMotel };
+  ND.PALETTES = PALETTES;
+  ND.PAL_KEYS = PAL_KEYS;
+})();
+
+</script>
+  <script>/* src/art/palms.js */
+/* Neon Drive — palm trees (silhouettes with neon rim light, swaying crowns),
+ * planter palms and shrubs. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { rgb } = ND;
+
+  const FRAMES = 8;
+
+  const DARK = {
+    frond: rgb('#130b1f'), frond2: rgb('#1b1029'), rachis: rgb('#1e1230'),
+    trunk: rgb('#1c1128'), ring: rgb('#0e0816'), coco: rgb('#24121c'),
+  };
+  const RIMS = [rgb('#3e1646'), rgb('#1e2c52'), rgb('#341a50'), rgb('#4a183a'), rgb('#1a3450')];
+
+  function drawFrond(pb, cx, cy, ang, L, droop, leaf, cols, rim, rimSide, seedN) {
+    const dx = Math.cos(ang), dy = Math.sin(ang);
+    const pt = (s) => [cx + dx * L * s, cy + dy * L * s + droop * L * s * s];
+    const steps = Math.ceil(L * 1.2);
+    // leaflets first, rachis on top
+    for (let i = 3; i <= steps; i++) {
+      const s = i / steps;
+      if (i % 2) continue;
+      const [px, py] = pt(s);
+      let tx = dx * L, ty = dy * L + 2 * droop * L * s;
+      const tl = Math.hypot(tx, ty); tx /= tl; ty /= tl;
+      const nx = -ty, ny = tx;
+      const ll = leaf * Math.sin(Math.PI * Math.min(1, s * 1.1)) * (1 - 0.35 * s) + 1;
+      for (const side of [-1, 1]) {
+        let lx = nx * side * 0.62 + tx * 0.55, ly = ny * side * 0.62 + ty * 0.55 + 0.75;
+        const n = Math.hypot(lx, ly); lx /= n; ly /= n;
+        const jitter = (ND.hash(i, side + 5, seedN) - 0.5) * 1.6;
+        const ex = px + lx * (ll + jitter), ey = py + ly * (ll + jitter);
+        const upper = ly < 0.2;
+        pb.lineFn(px, py, ex, ey, (x, y, t) => {
+          let c = t > 0.6 ? cols.frond2 : cols.frond;
+          if (rim && ((side === rimSide && t > 0.45) || (upper && t > 0.6))) c = ND.mix(c, rim, 0.35 + t * 0.4);
+          pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+        });
+      }
+    }
+    for (let i = 0; i < steps; i++) {
+      const [x0, y0] = pt(i / steps), [x1, y1] = pt((i + 1) / steps);
+      const c = cols.rachis;
+      pb.line(x0, y0, x1, y1, ND.pack(c[0], c[1], c[2]));
+      if (i < steps * 0.3) pb.line(x0, y0 + 1, x1, y1 + 1, ND.pack(c[0], c[1], c[2]));
+    }
+  }
+
+  // Tall street palm: trunk sprite + FRAMES crown sprites.
+  function genPalm(seed, opts = {}) {
+    const r = ND.rng(seed);
+    const h = opts.h || r.int(150, 235);
+    const lean = opts.lean != null ? opts.lean : r.range(-0.16, 0.16);
+    const bend = r.range(-10, 10);
+    const rim = r.pick(RIMS);
+    const rimSide = r.chance(0.5) ? -1 : 1;
+    const cols = opts.cols || DARK;
+    // trunk
+    const topDX = lean * h + bend * 0.2;
+    const tw = Math.ceil(Math.abs(topDX) + Math.abs(bend) + 24);
+    const bx = topDX < 0 ? tw - 12 : 12;
+    const tpb = new ND.PB(tw, h + 2);
+    let topX = bx;
+    for (let yy = 0; yy <= h; yy++) {
+      const s = yy / h;
+      const xc = bx + lean * h * s + bend * Math.sin(Math.PI * s);
+      if (yy === h) topX = xc;
+      const half = (8.5 - 4 * s) / 2 + Math.max(0, 0.05 - s) * 40;
+      const y = h - yy;
+      for (let x = Math.floor(xc - half); x <= Math.ceil(xc + half); x++) {
+        const u = (x - (xc - half)) / (2 * half);
+        if (u < -0.1 || u > 1.1) continue;
+        let c = cols.trunk;
+        const ringRow = (yy + Math.round(u * 2.5)) % 5 === 0;
+        if (ringRow) c = cols.ring;
+        if (rimSide > 0 && u > 0.72) c = ND.mix(c, rim, ringRow ? 0.25 : 0.6);
+        if (rimSide < 0 && u < 0.28) c = ND.mix(c, rim, ringRow ? 0.25 : 0.6);
+        tpb.set(x, y, ND.pack(c[0], c[1], c[2]));
+      }
+    }
+    const trunk = ND.sprite(tpb, null);
+    // crown frames
+    const L = opts.L || r.range(58, 80);
+    const leaf = opts.leaf || r.range(12, 16);
+    const S = Math.ceil((L + leaf) * 2 + 10);
+    const cx = S / 2, cy = S / 2 - 6;
+    const fronds = [];
+    const nUp = r.int(9, 12), nDown = r.int(3, 5);
+    for (let i = 0; i < nUp; i++) {
+      const a = -Math.PI + (i + 0.5) / nUp * Math.PI + r.range(-0.12, 0.12);
+      fronds.push({ a, L: L * r.range(0.75, 1.05), droop: r.range(0.45, 0.85), ph: r() * 6.28 });
+    }
+    for (let i = 0; i < nDown; i++) {
+      const a = 0.35 + (i + 0.5) / nDown * (Math.PI - 0.7) + r.range(-0.15, 0.15);
+      fronds.push({ a, L: L * r.range(0.5, 0.75), droop: r.range(0.1, 0.35), ph: r() * 6.28 });
+    }
+    // draw back-to-front: downward fronds first
+    fronds.sort((p, q) => Math.sin(q.a) - Math.sin(p.a));
+    const crowns = [];
+    for (let k = 0; k < FRAMES; k++) {
+      const pb = new ND.PB(S, S);
+      const ph = (k / FRAMES) * Math.PI * 2;
+      fronds.forEach((f, idx) => {
+        const sway = Math.sin(ph + f.ph) * 0.045 + Math.sin(ph) * 0.03;
+        drawFrond(pb, cx, cy, f.a + sway, f.L, f.droop + Math.sin(ph + f.ph + 1) * 0.04, leaf, cols, rim, rimSide, seed + idx);
+      });
+      // crown bulb + coconuts
+      pb.disc(cx, cy + 2, 3.5, ND.pack(cols.frond[0], cols.frond[1], cols.frond[2]));
+      for (let i = 0; i < 4; i++) {
+        const c = cols.coco;
+        pb.disc(cx - 3 + i * 2, cy + 5 + (i % 2), 1.6, ND.pack(c[0], c[1], c[2]));
+      }
+      crowns.push(pb.canvas());
+    }
+    return {
+      trunk,
+      crowns,
+      S,
+      bx,          // trunk base x inside trunk sprite
+      h,
+      topDX: topX - bx, // crown offset from base
+      ccx: cx,
+      ccy: cy,
+    };
+  }
+
+  // Small planter palm / shrub, lit warmly by storefronts.
+  function genPlant(seed, lit = true) {
+    const r = ND.rng(seed);
+    const S = 44;
+    const pb = new ND.PB(S, S);
+    const cols = lit
+      ? { frond: rgb('#2e6a3a'), frond2: rgb('#86c860'), rachis: rgb('#2a4a2a') }
+      : { frond: rgb('#120a1c'), frond2: rgb('#1d1230'), rachis: rgb('#1a1026') };
+    const rim = lit ? rgb('#ffd070') : rgb('#4a1f5a');
+    const n = r.int(7, 10);
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI + (i + 0.5) / n * Math.PI + r.range(-0.2, 0.2);
+      drawFrond(pb, S / 2, S - 4, a, r.range(12, 19), r.range(0.5, 1.0), r.range(4, 6), cols, rim, r.chance(0.5) ? 1 : -1, seed + i);
+    }
+    return pb.canvas();
+  }
+
+  ND.genPalm = genPalm;
+  ND.genPlant = genPlant;
+  ND.PALM_FRAMES = FRAMES;
+})();
+
+</script>
+  <script>/* src/art/people.js */
+/* Neon Drive — pedestrians: procedural skeletal walk cycles and idle poses. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { rgb } = ND;
+
+  const FW = 30, FH = 60, FOOT = 57; // frame size and foot row
+  const WALK_FRAMES = 8;
+
+  const SKIN = [rgb('#f0b898'), rgb('#e2a07e'), rgb('#c07a58'), rgb('#8e5238'), rgb('#6a3a28')];
+  const HAIR = [rgb('#f4cc68'), rgb('#e8b24a'), rgb('#5a3020'), rgb('#1c1018'), rgb('#2a1a14'), rgb('#9a3a1c'), rgb('#d0d0d8')];
+  const TOPS = [rgb('#8fd0ff'), rgb('#ff9ad0'), rgb('#f4f0ff'), rgb('#ffe070'), rgb('#70f0c0'), rgb('#ff6a6a'), rgb('#b090ff'), rgb('#2a2a3a'), rgb('#ffffff')];
+  const BOTTOMS = [rgb('#e8e0f0'), rgb('#26263a'), rgb('#3a4a8a'), rgb('#1a1a24'), rgb('#f0e8d8'), rgb('#6a5a8a')];
+  const DRESSES = [rgb('#e0203a'), rgb('#ff4fa8'), rgb('#18121e'), rgb('#20c8d8'), rgb('#f0f0ff'), rgb('#ffcc30'), rgb('#9a40ff')];
+
+  function makeLook(r, kind) {
+    const female = r.chance(0.5);
+    const look = {
+      female,
+      skin: r.pick(SKIN),
+      hair: r.pick(HAIR),
+      hairLong: female ? r.chance(0.8) : r.chance(0.12),
+      top: r.pick(TOPS),
+      bottom: r.pick(BOTTOMS),
+      dress: female && r.chance(0.6) ? r.pick(DRESSES) : null,
+      shoes: r.pick([rgb('#141018'), rgb('#f0f0f0'), rgb('#5a3020'), rgb('#e02040')]),
+      jacket: !female && r.chance(0.35) ? r.pick([rgb('#f4f0f8'), rgb('#a8d8ff'), rgb('#ffc0e0'), rgb('#e8e0c8')]) : null,
+      height: r.range(47, 53) * (female ? 0.97 : 1.02),
+      build: r.range(0.9, 1.15),
+      sil: kind === 'sil',
+      rim: r.pick([rgb('#ff6ad0'), rgb('#6ad8ff'), rgb('#ffb060'), rgb('#c080ff')]),
+      prop: r.chance(0.2) ? 'drink' : null,
+    };
+    if (look.sil) {
+      look.silCol = r.pick([rgb('#2a1428'), rgb('#24122a'), rgb('#301a24')]);
+      look.rim = r.pick([rgb('#ffb070'), rgb('#ff7ad0'), rgb('#ffd090')]);
+    }
+    return look;
+  }
+
+  // Pose: joint angles in radians (0 = straight down, +ve = forward).
+  function walkPose(k) {
+    const ph = (k / WALK_FRAMES) * Math.PI * 2;
+    const leg = (p) => {
+      const thigh = 0.46 * Math.sin(p);
+      const knee = 0.12 + 0.85 * Math.pow(Math.max(0, Math.cos(p - 0.35)), 2);
+      return { thigh, shin: thigh - knee };
+    };
+    const arm = (p) => {
+      const up = -0.38 * Math.sin(p);
+      return { up, fore: up + 0.3 + 0.15 * Math.max(0, -Math.sin(p)) };
+    };
+    return {
+      bob: Math.round(Math.abs(Math.sin(ph)) * 1.2),
+      near: leg(ph), far: leg(ph + Math.PI),
+      armNear: arm(ph + Math.PI), armFar: arm(ph),
+      lean: 0.04,
+    };
+  }
+
+  function idlePose(k, variant) {
+    const ph = (k / 4) * Math.PI * 2;
+    const sway = Math.sin(ph) * 0.03;
+    const p = {
+      bob: 0,
+      near: { thigh: 0.05 + sway, shin: 0.03 + sway },
+      far: { thigh: -0.08 - sway, shin: -0.06 - sway },
+      armNear: { up: 0.08, fore: 0.18 },
+      armFar: { up: -0.05, fore: 0.1 },
+      lean: sway,
+    };
+    if (variant === 'drink') p.armNear = { up: 0.55 + Math.sin(ph) * 0.1, fore: 2.3 };
+    if (variant === 'talk') p.armNear = { up: 0.35 + Math.max(0, Math.sin(ph * 2)) * 0.25, fore: 1.4 };
+    if (variant === 'pocket') { p.armNear = { up: -0.1, fore: 0.6 }; p.armFar = { up: -0.1, fore: 0.6 }; }
+    return p;
+  }
+
+  function drawFigure(look, pose) {
+    const pb = new ND.PB(FW, FH);
+    const Hh = look.height;
+    const s = Hh / 50;
+    const cx = FW / 2 - 1;
+    const foot = FOOT;
+    const hipY = foot - 24 * s + pose.bob;
+    const shY = foot - 40 * s + pose.bob;
+    const headY = foot - Hh + 3.5 * s + pose.bob;
+    const thighL = 12.5 * s, shinL = 12 * s, upL = 9 * s, foreL = 8.5 * s;
+    const lean = pose.lean * 10;
+    const hipX = cx, shX = cx + lean + 0.5;
+    const sil = look.sil;
+
+    const col = (c, shade = 1) => {
+      const base = sil ? look.silCol : c;
+      return ND.pack(base[0] * shade, base[1] * shade, base[2] * shade);
+    };
+    const limb = (x0, y0, a1, l1, a2, l2, r1, r2, c1, c2, shade) => {
+      const x1 = x0 + Math.sin(a1) * l1, y1 = y0 + Math.cos(a1) * l1;
+      const x2 = x1 + Math.sin(a2) * l2, y2 = y1 + Math.cos(a2) * l2;
+      pb.thick(x0, y0, x1, y1, r1, col(c1, shade));
+      pb.thick(x1, y1, x2, y2, r2, col(c2, shade));
+      return [x2, y2];
+    };
+    const legCol = look.dress ? look.skin : look.bottom;
+    const shoe = look.shoes;
+    const drawLeg = (L, shade) => {
+      const [ax, ay] = limb(hipX, hipY, L.thigh, thighL, L.shin, shinL, 1.7 * look.build, 1.2, legCol, look.dress ? look.skin : legCol, shade);
+      pb.thick(ax - 0.5, ay, ax + 2.5 * s, ay + 0.5, 0.8, col(shoe, shade));
+    };
+    const armCol = look.jacket || (look.dress ? look.skin : look.top);
+    const drawArm = (Ar, shade, front) => {
+      const sleeve = look.jacket || (look.dress ? look.skin : look.top);
+      const [hx, hy] = limb(shX, shY + 1, Ar.up, upL, Ar.fore, foreL, 1.3 * look.build, 1.0, sleeve, look.jacket ? look.jacket : look.skin, shade);
+      pb.disc(hx, hy, 1.0, col(look.skin, shade));
+      if (front && look.prop === 'drink') pb.rect(Math.round(hx), Math.round(hy) - 3, 2, 3, col(rgb('#ffd24a'), 1));
+    };
+
+    // far limbs
+    drawArm(pose.armFar, 0.62, false);
+    drawLeg(pose.far, 0.62);
+    // torso
+    const tw = 3.6 * look.build;
+    const torso = [[shX - tw, shY], [shX + tw, shY], [hipX + tw * 0.85, hipY], [hipX - tw * 0.85, hipY]];
+    const topCol = look.jacket || look.top;
+    pb.polyFn(torso, (x, y) => pb.set(x, y, col(look.dress || topCol, 1)));
+    if (look.dress) {
+      const hem = hipY + 11 * s;
+      const flare = [[hipX - tw * 0.9, hipY - 6], [hipX + tw * 0.9, hipY - 6], [hipX + tw * 1.3 + 1, hem], [hipX - tw * 1.3 - 1, hem]];
+      pb.polyFn(flare, (x, y) => pb.set(x, y, col(look.dress, 1)));
+    } else {
+      pb.rect(Math.round(hipX - tw * 0.85), Math.round(hipY - 2), Math.round(tw * 1.7) + 1, 3, col(look.bottom, 1));
+      if (look.jacket) pb.line(shX + 1, shY + 1, shX + 1, hipY - 2, col(look.top, 1));
+    }
+    drawLeg(pose.near, 1);
+    // neck + head
+    pb.rect(Math.round(shX - 1), Math.round(shY - 2), 2, 3, col(look.skin, 0.85));
+    const hx = shX + 0.5, hy = headY;
+    pb.disc(hx, hy, 3.1 * s, col(look.skin, 1));
+    pb.set(Math.round(hx + 3.4 * s), Math.round(hy + 0.5), col(look.skin, 1)); // nose
+    // hair
+    const hc = look.hair;
+    pb.discFn(hx - 0.6, hy - 1.2, 3.2 * s, (x, y) => {
+      if (y <= hy - 0.5 || x < hx - 1) pb.set(x, y, col(hc, 1));
+    });
+    if (look.hairLong) {
+      for (let y = Math.round(hy); y < Math.round(hy + 7 * s); y++) {
+        pb.set(Math.round(hx - 3), y, col(hc, 0.9));
+        pb.set(Math.round(hx - 2), y, col(hc, 1));
+        if (y < hy + 5) pb.set(Math.round(hx - 1), y, col(hc, 1));
+      }
+    }
+    drawArm(pose.armNear, 1, true);
+
+    // shading: rim light on the facing edge, darker back edge
+    const src = pb.d.slice();
+    const rim = look.rim;
+    for (let y = 0; y < FH; y++)
+      for (let x = 0; x < FW; x++) {
+        const i = y * FW + x;
+        if (!(src[i] >>> 24)) continue;
+        const front = x + 1 < FW ? src[i + 1] >>> 24 : 0;
+        const back = x > 0 ? src[i - 1] >>> 24 : 0;
+        const up = y > 0 ? src[i - FW] >>> 24 : 0;
+        const c = [src[i] & 255, (src[i] >> 8) & 255, (src[i] >> 16) & 255];
+        let o = c;
+        if (sil) {
+          // backlit by the storefronts: warm rim on every outer edge
+          if (!front || !back) o = ND.mix(c, rim, 0.5);
+          else if (!up) o = ND.mix(c, rim, 0.35);
+          else o = ND.mix(c, rim, 0.06 + 0.1 * (1 - y / FH));
+        } else {
+          if (!front) o = ND.mix(c, rim, 0.35);
+          else if (!back) o = ND.scale(c, 0.75);
+          if (!up) o = ND.mix(o, [255, 255, 255], 0.12);
+        }
+        pb.set(x, y, ND.pack(o[0], o[1], o[2]));
+      }
+    return pb;
+  }
+
+  // Returns {right:[canvas], left:[canvas]} walk frames plus idle frames.
+  function genPerson(seed, kind = 'lit') {
+    const r = ND.rng(seed);
+    const look = makeLook(r, kind);
+    const walkR = [], walkL = [];
+    for (let k = 0; k < WALK_FRAMES; k++) {
+      const pb = drawFigure(look, walkPose(k));
+      walkR.push(pb.canvas());
+      walkL.push(pb.flipped().canvas());
+    }
+    const variant = look.prop === 'drink' ? 'drink' : r.pick(['talk', 'pocket', 'rest', 'talk']);
+    const idleR = [], idleL = [];
+    for (let k = 0; k < 4; k++) {
+      const pb = drawFigure(look, idlePose(k, variant));
+      idleR.push(pb.canvas());
+      idleL.push(pb.flipped().canvas());
+    }
+    return { walkR, walkL, idleR, idleL, look, w: FW, h: FH, foot: FOOT };
+  }
+
+  // The reference's woman in the red dress.
+  function genHeroWalker(seed) {
+    const r = ND.rng(seed);
+    const look = makeLook(r, 'lit');
+    Object.assign(look, {
+      female: true, dress: rgb('#e41c34'), hair: rgb('#f6d27a'), hairLong: true,
+      skin: rgb('#f0b494'), shoes: rgb('#e41c34'), height: 51, build: 0.95, rim: rgb('#ff7ad8'), prop: null,
+    });
+    const walkR = [], walkL = [];
+    for (let k = 0; k < WALK_FRAMES; k++) {
+      const pb = drawFigure(look, walkPose(k));
+      walkR.push(pb.canvas());
+      walkL.push(pb.flipped().canvas());
+    }
+    return { walkR, walkL, idleR: walkR.slice(0, 1), idleL: walkL.slice(0, 1), look, w: FW, h: FH, foot: FOOT };
+  }
+
+  ND.genPerson = genPerson;
+  ND.genHeroWalker = genHeroWalker;
+  ND.PERSON = { FW, FH, FOOT, WALK_FRAMES };
+})();
+
+</script>
+  <script>/* src/art/cars.js */
+/* Neon Drive — the hero 80s supercar (with driver) and background traffic. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { rgb } = ND;
+
+  // ===========================================================================
+  // Hero car — white flat-12 wedge with side strakes, facing left.
+  // Local coords: 300 x 76, ground contact on row 75.
+  // ===========================================================================
+  const HW = 300, HH = 76;
+  const WHEEL_R = 21;
+  const WHEELS = [[66, 54], [246, 54]];
+
+  const TOP = [
+    [1, 42], [4, 39.5], [14, 37.6], [34, 35.2], [60, 31.8], [84, 28.6], [100, 26.2], [104, 25.4],
+    [118, 15], [130, 6.5], [137, 3], [145, 1.4], [196, 1.2], [203, 2.2], [212, 4.6],
+    [232, 9.5], [252, 13.4], [272, 15.8], [288, 17.2], [295, 18.6], [298, 21],
+  ];
+
+  function topY(x) {
+    if (x <= TOP[0][0]) return TOP[0][1];
+    for (let i = 1; i < TOP.length; i++) {
+      if (x <= TOP[i][0]) {
+        const a = TOP[i - 1], b = TOP[i];
+        return a[1] + ((x - a[0]) / (b[0] - a[0])) * (b[1] - a[1]);
+      }
+    }
+    return 22;
+  }
+
+  function arch(pts, cx, cy, r, sill) {
+    const a0 = Math.asin((sill - cy) / r);
+    const a1 = -Math.PI - a0;
+    const n = 28;
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + ((a1 - a0) * i) / n;
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+  }
+
+  function bodyPolygon() {
+    const pts = TOP.slice();
+    pts.push([299, 30], [299, 50], [298, 58], [296, 61.5], [272, 62]);
+    arch(pts, WHEELS[1][0], WHEELS[1][1], 24.5, 62);
+    pts.push([220, 62], [92, 62]);
+    arch(pts, WHEELS[0][0], WHEELS[0][1], 24.5, 62);
+    pts.push([40, 62], [8, 61.5], [3, 60], [0.6, 55], [0.4, 46]);
+    return pts;
+  }
+
+  // Driver pixel map (facing left). Origin placed at (145, 2).
+  const DRIVER = [
+    '.....kkkkk.......',
+    '....khHHhhdk.....',
+    '...khHHhhhhdk....',
+    '..khhhhhhhhddk...',
+    '..kShhhhhhhdddk..',
+    '..SSshhhhhhdddk..',
+    '.SSSSshhhhddddk..',
+    '.GGGGGGszhdddddk.',
+    '..GGgGzszzhddddk.',
+    '.SSSssszzzhdddk..',
+    'SSSssszz..hddddk.',
+    '.SSsssz....dddk..',
+    '..ssszz....ddddk.',
+    '...zzz.....dddk..',
+    '....sz.....dddk..',
+    '....sz....cbdk...',
+    '...cwbbbbbbbbbB..',
+    '..cwwbbbwbbbbbBB.',
+    '.cwbbbbwbbbbbbBB.',
+    '.cbbbbwbbbbbbbBB.',
+    '.cbbbbwbbbbbbbBB.',
+    '.cbbbwbbbbbbbbBB.',
+    '.bbbbwbbbbbbbbBB.',
+    '.bbbbwbbbbbbbbBB.',
+    '.bbbbbbbbbbbbbBB.',
+  ];
+  const DRIVER_PAL = {
+    H: rgb('#fff2b0'), h: rgb('#f2c662'), d: rgb('#c48c36'), k: rgb('#7a4e22'),
+    S: rgb('#f8c6a6'), s: rgb('#e49c7c'), z: rgb('#a8624e'),
+    G: rgb('#0c0a14'), g: rgb('#ff7ad8'),
+    c: rgb('#e4f2ff'), w: rgb('#ffffff'), b: rgb('#96c2f0'), B: rgb('#5c80bc'),
+  };
+
+  function genHeroCar() {
+    const pb = new ND.PB(HW, HH), gl = new ND.PB(HW, HH);
+    const poly = bodyPolygon();
+    const P = (c) => ND.pack(c[0], c[1], c[2]);
+
+    // ---- underbody shadow between the wheels (we see the dark road under the car)
+    for (let y = 60; y < 73; y++)
+      for (let x = 30; x < 286; x++) {
+        const a = ND.clamp(1 - (y - 60) / 13, 0, 1) * 0.92;
+        pb.set(x, y, ND.pack(10, 6, 18, a * 255));
+      }
+
+    // ---- body paint
+    // bright upper flank, a crisp "horizon" reflection, darker lower flank
+    const ramp = [
+      [0, rgb('#ffffff')], [0.1, rgb('#f7f4fd')], [0.46, rgb('#e9e4f6')], [0.52, rgb('#dcd6ee')],
+      [0.535, rgb('#b9b1d6')], [0.62, rgb('#c4bcdf')], [0.82, rgb('#a69ec6')], [0.93, rgb('#8a82ac')], [1, rgb('#645c86')],
+    ];
+    const tintTop = rgb('#ffc8ee'), tintLow = rgb('#7fc8ff'), tintWarm = rgb('#ffae8a'), tintMag = rgb('#e89aff');
+    pb.polyFn(poly, (x, y) => {
+      const ty = topY(x);
+      const dt = y - ty;
+      let c;
+      if (dt < 3.5 && x < 292) {
+        // upper surfaces: hood, roof, deck — reflect the pink sky glow
+        c = ND.mix(rgb('#fff0fa'), tintTop, 0.3 + (dt / 3.5) * 0.35);
+        if (dt < 1) c = rgb('#ffffff');
+      } else {
+        const t = ND.clamp((y - 24) / 38, 0, 1);
+        c = ND.grad(ramp, t);
+        // environment tints: pink neon from above-behind, cyan from the street, warm lamps low
+        c = ND.mix(c, tintTop, ND.clamp(0.28 - t * 0.5, 0, 0.28) * (0.4 + (x / HW) * 0.6));
+        c = ND.mix(c, tintMag, ND.clamp(1 - Math.abs(t - 0.62) * 5, 0, 1) * 0.16);
+        c = ND.mix(c, tintLow, ND.clamp((t - 0.55) * 0.9, 0, 0.3) * (1 - (x / HW) * 0.7));
+        c = ND.mix(c, tintWarm, ND.clamp((t - 0.6) * 0.6, 0, 0.2) * (x / HW));
+        // shoulder crease highlight
+        if (Math.abs(dt - 4.5) < 0.6 && (x < 104 || x > 208)) c = ND.mix(c, [255, 255, 255], 0.7);
+        if (Math.abs(dt - 5.5) < 0.6 && (x < 104 || x > 208)) c = ND.scale(c, 0.93);
+        // front fender / rear haunch curvature: darker as the surface turns away
+        const fx = Math.min(1, x / 18), rx = Math.min(1, (HW - x) / 14);
+        c = ND.scale(c, 0.82 + 0.18 * Math.min(fx, rx));
+      }
+      if (y >= 61) c = rgb('#4e4870');
+      pb.dset(x, y, c, 255, 6);
+    });
+    // lower body character line
+    for (let x = 12; x < 290; x++) {
+      if (x > 40 && x < 92) continue;
+      if (x > 220 && x < 272) continue;
+      pb.set(x, 57, ND.pack(150, 142, 186));
+      pb.set(x, 58, ND.pack(118, 110, 158));
+    }
+
+    // tail face (slightly darker vertical plane)
+    for (let y = 21; y < 61; y++) {
+      pb.dset(298, y, rgb('#b4b0cc'), 255, 6);
+      pb.dset(297, y, rgb('#d0cce0'), 255, 6);
+    }
+    // front bumper face / nose lip
+    for (let y = 43; y < 61; y++) pb.dset(0, y, rgb('#bdb9d4'), 255, 6);
+    pb.hline(4, 44, 60, P(rgb('#3a3654')));
+    pb.hline(3, 42, 61, P(rgb('#24203a')));
+    for (let x = 6; x < 38; x += 3) pb.set(x, 58, P(rgb('#5a5678'))); // lower grille slots
+
+    // wheel arch interiors (dark) + lip highlight
+    for (const [wx, wy] of WHEELS) {
+      pb.discFn(wx, wy, 24.5, (x, y, d) => {
+        if (y > 62) return;
+        if (d > 0.96) pb.set(x, y, P(rgb('#e8e4f4')));
+        else pb.set(x, y, P(d > 0.9 ? rgb('#2a2440') : rgb('#110d1a')));
+      });
+    }
+
+    // ---- greenhouse
+    // windshield seen edge-on: dark glass wedge with neon reflections
+    const shield = [[98, 26.6], [104, 25.4], [118, 15], [130, 6.5], [137, 3], [141, 3.2], [140, 5], [128, 13], [116, 22], [113, 26.4]];
+    pb.polyFn(shield, (x, y) => {
+      let c = ND.mix(rgb('#2a2050'), rgb('#120c24'), (y - 3) / 24);
+      const s = x + y * 1.4;
+      if (s % 19 < 3) c = ND.mix(c, rgb('#ff8ae0'), 0.45);
+      else if (s % 19 < 5) c = ND.mix(c, rgb('#8ad8ff'), 0.25);
+      pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+    });
+    const glassDoor = [[117, 26], [128, 15], [136, 8], [142, 4], [172, 4], [172, 26]];
+    const glassRear = [[176, 4], [197, 4], [202, 6], [206, 14], [208, 26], [176, 26]];
+    pb.polyFn(glassRear, (x, y) => {
+      const v = (y - 4) / 22;
+      let c = ND.mix(rgb('#3a2f6a'), rgb('#140f28'), v);
+      if ((x + y) % 11 < 2) c = ND.mix(c, rgb('#b09ad8'), 0.25);
+      pb.set(x, y, ND.pack(c[0], c[1], c[2], 190));
+    });
+    pb.polyFn(glassDoor, (x, y) => {
+      const v = (y - 4) / 22;
+      const c = ND.mix(rgb('#2a2250'), rgb('#120e22'), v);
+      pb.set(x, y, ND.pack(c[0], c[1], c[2], 165)); // open window: we see through to the far side
+    });
+    // A-pillar
+    pb.lineFn(114, 26, 142, 3, (x, y) => {
+      pb.set(x, y, P(rgb('#f0ecfa')));
+      pb.set(x + 1, y, P(rgb('#b8b2d2')));
+      pb.set(x + 2, y, P(rgb('#1a1628')));
+    });
+    // windshield top edge highlight
+    pb.lineFn(104, 25, 138, 2, (x, y) => pb.set(x, y - 1, P(rgb('#ffffff'))));
+    // B-pillar
+    for (let y = 3; y < 27; y++) {
+      pb.set(173, y, P(rgb('#1c1830')));
+      pb.set(174, y, P(rgb('#2c2842')));
+      pb.set(175, y, P(rgb('#48446a')));
+    }
+    // window frame / beltline rubber
+    pb.hline(106, 208, 26, P(rgb('#1e1a2e')));
+    pb.hline(106, 208, 27, P(rgb('#fdfbff')));
+    // roof edge
+    pb.hline(139, 200, 3, P(rgb('#cfc8e4')));
+    // fuel filler on the buttress
+    pb.discFn(216, 15, 4.2, (x, y, d) => { if (d > 0.72) pb.set(x, y, P(rgb('#b8b2d0'))); });
+    pb.set(213, 13, P(rgb('#ffffff')));
+
+    // ---- interior visible through the open window
+    // steering wheel + dash
+    pb.thick(129, 12, 131, 24, 0.9, P(rgb('#0e0a16')));
+    pb.thick(111, 22, 132, 20, 1.2, P(rgb('#16121e')));
+    pb.set(126, 20, P(rgb('#6ae8ff')));
+    gl.set(126, 20, ND.pack(60, 180, 220));
+    // seat back / headrest
+    for (let y = 6; y < 26; y++) for (let x = 162; x < 171; x++) {
+      if (y < 9 && (x < 164 || x > 168)) continue;
+      pb.set(x, y, P(x === 162 ? rgb('#3a3450') : rgb('#1a1626')));
+    }
+
+    // ---- driver
+    const ox = 145, oy = 2;
+    DRIVER.forEach((row, yy) => {
+      for (let xx = 0; xx < row.length; xx++) {
+        const ch = row[xx];
+        if (ch === '.') continue;
+        const c = DRIVER_PAL[ch];
+        if (oy + yy >= 26) continue;
+        pb.set(ox + xx, oy + yy, P(c));
+      }
+    });
+    // arm resting on the door, hand hanging outside
+    const skin = rgb('#eaa888'), skinD = rgb('#b87060');
+    pb.thick(156, 19, 145, 25, 2.1, P(rgb('#96c2f0')));
+    pb.thick(157, 19, 147, 24, 0.6, P(rgb('#ffffff')));
+    pb.thick(145, 25, 140, 26, 1.6, P(skin));
+    pb.thick(140, 27, 137, 32, 1.4, P(skin));
+    pb.set(138, 28, P(rgb('#ffd24a'))); pb.set(139, 28, P(rgb('#c89020'))); // watch
+    pb.disc(136.5, 33, 1.6, P(skin));
+    pb.set(135, 34, P(skinD)); pb.set(137, 35, P(skinD));
+    pb.set(141, 25, P(rgb('#ffe0c8')));
+
+    // ---- side strakes
+    for (let i = 0; i < 7; i++) {
+      const y = 35 + i * 3;
+      const xs = Math.round(111 + i * 0.6), xe = Math.round(196 - i * 0.4);
+      for (let x = xs; x <= xe; x++) {
+        const intake = x > 176;
+        pb.set(x, y, P(intake ? rgb('#f2f0f8') : rgb('#ffffff')));
+        pb.set(x, y + 1, P(intake ? rgb('#8e8aaa') : rgb('#d6d2e6')));
+        if (x > xs) pb.set(x, y + 2, P(intake ? rgb('#0e0b16') : rgb('#6a6688')));
+      }
+      pb.set(xe + 1, y + 1, P(rgb('#b0acc8')));
+    }
+    // door shut lines
+    pb.lineFn(105, 28, 107, 60, (x, y) => pb.set(x, y, P(rgb('#9894b4'))));
+    for (let y = 28; y < 60; y++) if (y < 35 || y > 56) pb.set(173, y, P(rgb('#9894b4')));
+    // door handle hidden in strakes; small key lock
+    pb.set(169, 31, P(rgb('#8a86a6')));
+
+    // ---- side mirror on the A-pillar
+    pb.thick(121, 21, 124, 20, 0.8, P(rgb('#2a2440')));
+    pb.polyFn([[112, 16], [120, 15], [122, 17], [121, 22], [113, 22], [111, 20]], (x, y) => {
+      const c = y < 18 ? rgb('#ffffff') : y < 20 ? rgb('#e8e4f4') : rgb('#b8b4d0');
+      pb.set(x, y, P(c));
+    });
+    pb.set(111, 20, P(rgb('#9894b4')));
+    pb.hline(113, 120, 23, P(rgb('#5a5480')));
+
+    // ---- lights
+    const amber = rgb('#ffa21e'), red = rgb('#ff2438');
+    for (let y = 45; y <= 48; y++) for (let x = 1; x <= 6; x++) { pb.set(x, y, P(ND.mix(amber, [255, 240, 200], x < 3 ? 0.4 : 0))); gl.set(x, y, ND.pack(255, 150, 30)); }
+    for (let x = 28; x <= 33; x++) { pb.set(x, 46, P(amber)); pb.set(x, 47, P(ND.scale(amber, 0.75))); gl.set(x, 46, ND.pack(200, 110, 20)); }
+    for (let y = 27; y <= 41; y++) for (let x = 293; x <= 298; x++) {
+      const louvre = (y - 27) % 3 === 2;
+      const c = louvre ? ND.scale(red, 0.35) : ND.mix(red, [255, 200, 200], x > 296 ? 0.3 : 0);
+      pb.set(x, y, P(c));
+      if (!louvre) gl.set(x, y, ND.pack(255, 30, 50));
+    }
+    for (let x = 277; x <= 282; x++) { pb.set(x, 44, P(red)); gl.set(x, 44, ND.pack(200, 20, 40)); }
+
+    const body = ND.sprite(pb, gl);
+    body.glowPts = { tail: [296, 34], front: [3, 46] };
+    return body;
+  }
+
+  // Five-spoke star rims with motion blur; 12 frames cover 72 degrees.
+  function genWheelFrames(R = WHEEL_R, spokes = 5, blur = 0.2) {
+    const S = R * 2 + 1;
+    const frames = [];
+    const nF = 12;
+    const period = (Math.PI * 2) / spokes;
+    for (let f = 0; f < nF; f++) {
+      const pb = new ND.PB(S, S);
+      const th = (f / nF) * period;
+      for (let y = 0; y < S; y++)
+        for (let x = 0; x < S; x++) {
+          const dx = x - R, dy = y - R;
+          const d = Math.hypot(dx, dy);
+          if (d > R + 0.4) continue;
+          const ang = Math.atan2(dy, dx);
+          const light = 0.5 - 0.5 * Math.cos(ang + Math.PI * 0.75); // lit from upper-left
+          let c;
+          const rr = d / R;
+          if (rr > 0.9) {
+            c = ND.mix(rgb('#100c16'), rgb('#3a344c'), Math.pow(light, 3) * 0.9);
+          } else if (rr > 0.71) {
+            c = ND.mix(rgb('#1a1524'), rgb('#2c2638'), light * 0.8);
+            if (rr > 0.86 && rr < 0.9) c = ND.mix(c, rgb('#3c364e'), 0.5);
+          } else if (rr > 0.66) {
+            c = ND.mix(rgb('#7a7a92'), rgb('#f0f0fa'), light);
+          } else {
+            // rim face: spokes with motion blur
+            let cover = 0;
+            const samples = 4;
+            for (let k = 0; k < samples; k++) {
+              const a = ang - th + (k / samples) * blur;
+              let m = ((a % period) + period) % period;
+              if (m > period / 2) m -= period;
+              const halfW = (2.9 - d * 0.07) / Math.max(1.5, d);
+              if (Math.abs(m) < halfW + 0.02 && d > 3) cover++;
+            }
+            cover /= samples;
+            let gap = rgb('#1c1828');
+            if (d > 7 && d < 12.5) gap = ND.mix(rgb('#3c3850'), rgb('#56526a'), light * 0.5); // brake disc
+            if (d > 8 && d < 12.5 && ang > -1.0 && ang < -0.2) gap = rgb('#2a2636'); // caliper (fixed)
+            const spoke = ND.mix(rgb('#8c8ca4'), rgb('#e6e6f2'), light);
+            c = ND.mix(gap, spoke, cover);
+            if (d <= 4.6) c = ND.mix(rgb('#8c8ca4'), rgb('#dcdcea'), light);
+            if (d <= 2.6) c = rgb('#f2c230');
+            if (d <= 1.0) c = rgb('#3a2a10');
+          }
+          pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+        }
+      frames.push(pb.canvas());
+    }
+    return { frames, R, S, period };
+  }
+
+  // ===========================================================================
+  // Traffic — boxy 80s cars at background-lane scale, facing left.
+  // ===========================================================================
+  const TW = 162, TH = 48, TG = 47;
+  const PROFILES = {
+    sedan: {
+      top: [[0, 27], [3, 22], [16, 20], [40, 18.5], [50, 17.5], [60, 8], [64, 6.5], [100, 6.5], [106, 8], [116, 17.5], [146, 18.5], [157, 19.5], [160, 22]],
+      windows: [[[53, 17], [62, 9], [80, 9], [80, 17]], [[83, 9], [99, 9], [104, 11], [112, 17], [83, 17]]],
+    },
+    coupe: {
+      top: [[0, 26], [3, 21.5], [20, 19.5], [46, 18], [60, 9], [66, 7], [92, 7], [122, 14.5], [150, 17.5], [158, 19], [160, 22]],
+      windows: [[[53, 17], [62, 10], [84, 9], [84, 17]], [[87, 9], [92, 9], [114, 15.5], [87, 16]]],
+    },
+    wagon: {
+      top: [[0, 27], [3, 22], [16, 20], [40, 18.5], [50, 17.5], [60, 8], [64, 6.5], [146, 6.5], [152, 9], [156, 18.5], [160, 22]],
+      windows: [[[53, 17], [62, 9], [80, 9], [80, 17]], [[83, 9], [110, 9], [110, 17], [83, 17]], [[113, 9], [144, 9], [148, 12], [150, 17], [113, 17]]],
+    },
+  };
+  const TRAFFIC_COLS = [rgb('#7a1424'), rgb('#b8bccc'), rgb('#1a1822'), rgb('#1c2a58'), rgb('#1a7078'), rgb('#24483a'), rgb('#5a1a3a'), rgb('#b08a48'), rgb('#3a1a60')];
+
+  function trafficTop(top, x) {
+    if (x <= top[0][0]) return top[0][1];
+    for (let i = 1; i < top.length; i++) {
+      if (x <= top[i][0]) {
+        const a = top[i - 1], b = top[i];
+        return a[1] + ((x - a[0]) / (b[0] - a[0])) * (b[1] - a[1]);
+      }
+    }
+    return 22;
+  }
+
+  function genTraffic(seed, opts = {}) {
+    const r = ND.rng(seed);
+    const kind = opts.kind || r.pick(['sedan', 'sedan', 'coupe', 'wagon', 'coupe']);
+    const special = opts.special || (r.chance(0.08) ? 'taxi' : r.chance(0.05) ? 'police' : null);
+    const prof = PROFILES[special ? 'sedan' : kind];
+    let base = opts.color || (special === 'taxi' ? rgb('#f0b818') : special === 'police' ? rgb('#16161e') : r.pick(TRAFFIC_COLS));
+    const pb = new ND.PB(TW, TH), gl = new ND.PB(TW, TH);
+    const P = (c) => ND.pack(c[0], c[1], c[2]);
+    const wheels = [[32, 37], [128, 37]];
+    const pts = prof.top.slice();
+    pts.push([160, 32], [158, 37], [142, 37.5]);
+    arch(pts, 128, 37, 12.5, 37.5);
+    pts.push([114, 37.5], [46, 37.5]);
+    arch(pts, 32, 37, 12.5, 37.5);
+    pts.push([18, 37.5], [2, 37], [0, 33]);
+    pb.polyFn(pts, (x, y) => {
+      const ty = trafficTop(prof.top, x);
+      const dt = y - ty;
+      let c;
+      if (dt < 1.2) c = ND.mix(ND.scale(base, 1.5), [255, 200, 240], 0.35);
+      else {
+        const t = ND.clamp((y - 17) / 21, 0, 1);
+        c = ND.scale(base, 1.18 - t * 0.62);
+        c = ND.mix(c, [255, 120, 220], 0.08 * (1 - t));
+      }
+      if (special === 'police' && y > 19 && y < 31 && x > 50 && x < 112) c = ND.scale(rgb('#e8e8f0'), 1.05 - (y - 19) / 40);
+      pb.dset(x, y, c, 255, 8);
+    });
+    // chrome trim + bumpers
+    pb.hline(4, 156, 29, P(ND.mix(base, [220, 220, 240], 0.5)));
+    for (let y = 26; y < 35; y++) { pb.set(0, y, P(rgb('#9a9ab0'))); pb.set(1, y, P(rgb('#c8c8d8'))); pb.set(159, y, P(rgb('#9a9ab0'))); pb.set(160, y, P(rgb('#6a6a80'))); }
+    pb.hline(2, 158, 37, P(rgb('#221c2c')));
+    // arches
+    for (const [wx, wy] of wheels) pb.discFn(wx, wy, 12.5, (x, y, d) => { if (y <= 37) pb.set(x, y, P(d > 0.9 ? ND.scale(base, 0.5) : rgb('#0e0a14'))); });
+    // windows with occupants
+    const occupants = r.int(1, 2);
+    prof.windows.forEach((w, wi) => {
+      pb.polyFn(w, (x, y) => {
+        const v = (y - 8) / 10;
+        let c = ND.mix(rgb('#3a3068'), rgb('#120e24'), v);
+        if ((x + y * 2) % 17 < 2) c = ND.mix(c, rgb('#a898d8'), 0.3);
+        pb.set(x, y, P(c));
+      });
+      if (wi < occupants) {
+        const hx = wi === 0 ? 70 : 92, hy = 12;
+        pb.disc(hx, hy, 2.6, P(rgb('#241a2a')));
+        pb.rect(hx - 3, hy + 2, 7, 4, P(rgb('#1e1624')));
+      }
+    });
+    // pillars
+    for (let y = 8; y < 18; y++) { pb.set(81, y, P(ND.scale(base, 0.45))); pb.set(82, y, P(ND.scale(base, 0.6))); }
+    // lights
+    for (let y = 21; y <= 27; y++) for (let x = 155; x <= 160; x++) {
+      const c = rgb('#ff2a3c');
+      pb.set(x, y, P(y === 24 ? ND.scale(c, 0.6) : c));
+      gl.set(x, y, ND.pack(255, 30, 50));
+    }
+    for (let y = 22; y <= 26; y++) for (let x = 0; x <= 2; x++) {
+      pb.set(x, y, P(rgb('#fff6d8')));
+      gl.set(x, y, ND.pack(255, 240, 200));
+    }
+    pb.set(5, 27, P(rgb('#ffa21e'))); gl.set(5, 27, ND.pack(200, 120, 20));
+    // taxi sign / police bar
+    let bar = null;
+    if (special === 'taxi') {
+      pb.rect(74, 2, 14, 5, P(rgb('#ffe890')));
+      for (let x = 74; x < 88; x++) for (let y = 2; y < 7; y++) gl.set(x, y, ND.pack(200, 170, 70));
+      const mk = ND.textMask('TAXI', { small: true, gap: 0 });
+      for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x] && y < 5) pb.set(75 + x, 2 + y, P(rgb('#402808')));
+    }
+    if (special === 'police') {
+      pb.rect(72, 3, 20, 3, P(rgb('#2a2a3a')));
+      bar = { x: 72, y: 3, w: 20 };
+    }
+    // wheels (4 frames of a simple hubcap)
+    const wheelFrames = [];
+    for (let f = 0; f < 4; f++) {
+      const w = new ND.PB(21, 21);
+      for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) {
+        const d = Math.hypot(x - 10, y - 10), a = Math.atan2(y - 10, x - 10);
+        if (d > 10.4) continue;
+        let c = d > 6.2 ? rgb('#141018') : ND.mix(rgb('#6a6a84'), rgb('#c8c8dc'), 0.5 - 0.5 * Math.cos(a + 2.3));
+        if (d <= 6.2 && d > 3 && Math.cos((a - (f / 4) * (Math.PI / 2)) * 4) > 0.7) c = rgb('#3a3a50');
+        if (d <= 1.4) c = rgb('#2a2a3a');
+        w.set(x, y, P(c));
+      }
+      wheelFrames.push(w.canvas());
+    }
+    return {
+      body: ND.sprite(pb, gl),
+      wheels,
+      wheelFrames,
+      bar,
+      w: TW,
+      h: TH,
+      ground: TG,
+      special,
+    };
+  }
+
+  ND.genHeroCar = genHeroCar;
+  ND.genWheelFrames = genWheelFrames;
+  ND.genTraffic = genTraffic;
+  ND.HERO = { W: HW, H: HH, WHEELS, WHEEL_R };
+})();
+
+</script>
+  <script>/* src/art/props.js */
+/* Neon Drive — street furniture: lamps, planters, foreground foliage, light pools. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { rgb } = ND;
+
+  // Street lamp. type 'globe' (Deco post) or 'cobra' (arm over the street).
+  function genLamp(seed, type) {
+    const r = ND.rng(seed);
+    type = type || (r.chance(0.6) ? 'globe' : 'cobra');
+    const h = r.int(112, 124);
+    const w = type === 'cobra' ? 22 : 11;
+    const pb = new ND.PB(w, h + 4), gl = new ND.PB(w, h + 4);
+    const P = (c) => ND.pack(c[0], c[1], c[2]);
+    const pole = rgb('#1e1630'), poleL = rgb('#3a2a52'), poleR = rgb('#130d1e');
+    const px = type === 'cobra' ? w - 5 : 4;
+    for (let y = 8; y < h + 4; y++) {
+      pb.set(px, y, P(poleL));
+      pb.set(px + 1, y, P(pole));
+      pb.set(px + 2, y, P(poleR));
+    }
+    // base
+    for (let y = h - 2; y < h + 4; y++) for (let x = px - 1; x <= px + 3; x++) pb.set(x, y, P(x === px - 1 ? poleL : pole));
+    let light;
+    if (type === 'globe') {
+      // collar + globe
+      pb.hline(px - 1, px + 3, 9, P(poleL));
+      pb.hline(px - 1, px + 3, 10, P(pole));
+      const gx = px + 1, gy = 4;
+      pb.discFn(gx, gy, 3.6, (x, y, d) => {
+        const c = ND.mix(rgb('#fffbe8'), rgb('#ffb454'), Math.pow(d, 1.5));
+        pb.set(x, y, P(c));
+        gl.set(x, y, ND.pack(255, 200 - d * 60, 120 - d * 80));
+      });
+      light = [gx, gy];
+    } else {
+      // curved arm to the left with a cobra head
+      const pts = [];
+      for (let i = 0; i <= 10; i++) {
+        const t = i / 10;
+        pts.push([px + 1 - t * 14, 10 - Math.sin(t * Math.PI * 0.5) * 6]);
+      }
+      for (let i = 0; i + 1 < pts.length; i++) pb.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], P(poleL));
+      const hx = Math.round(pts[10][0]), hy = Math.round(pts[10][1]);
+      pb.rect(hx - 4, hy - 1, 8, 3, P(pole));
+      pb.hline(hx - 4, hx + 3, hy - 1, P(poleL));
+      for (let x = hx - 3; x <= hx + 2; x++) {
+        pb.set(x, hy + 2, P(rgb('#fff0c0')));
+        gl.set(x, hy + 2, ND.pack(255, 200, 110));
+      }
+      light = [hx, hy + 2];
+    }
+    return { spr: ND.sprite(pb, gl), w, h: h + 4, baseX: px + 1, light, type };
+  }
+
+  // Concrete planter with a lit tropical plant.
+  function genPlanter(seed) {
+    const r = ND.rng(seed);
+    const w = r.int(26, 36), bh = r.int(12, 15);
+    const plant = ND.genPlant(seed * 7 + 1, true);
+    const H = bh + 34;
+    const pb = new ND.PB(w + 8, H);
+    const P = (c) => ND.pack(c[0], c[1], c[2]);
+    for (let y = H - bh; y < H; y++)
+      for (let x = 4; x < w + 4; x++) {
+        let c = ND.mix(rgb('#b88aa0'), rgb('#5a3a5c'), (y - (H - bh)) / bh);
+        if (y === H - bh) c = rgb('#e8c0c8');
+        if (x === 4) c = ND.scale(c, 0.8);
+        pb.dset(x, y, c, 255, 10);
+      }
+    const cv = pb.canvas();
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(plant, Math.round((w + 8) / 2 - 22), H - bh - 40);
+    ctx.drawImage(plant, Math.round((w + 8) / 2 - 22) + (r.chance(0.5) ? 6 : -6), H - bh - 36);
+    return { c: cv, w: w + 8, h: H };
+  }
+
+  // Foreground foliage, authored at half resolution for a defocused look:
+  // broad tropical leaves (banana / bird-of-paradise / palmetto) in silhouette,
+  // their upper edges catching neon.
+  function genBush(seed) {
+    const r = ND.rng(seed);
+    const w = r.int(70, 120), h = r.int(30, 46);
+    const pb = new ND.PB(w, h);
+    const fill = rgb('#0b0714'), fill2 = rgb('#120b1e');
+    const rim = r.pick([rgb('#b43a8a'), rgb('#7a44c0'), rgb('#d04a78'), rgb('#4a6ad0')]);
+    const vein = r.pick([rgb('#3a1440'), rgb('#26164a'), rgb('#44162e')]);
+    const n = r.int(6, 11);
+    const leaves = [];
+    for (let i = 0; i < n; i++) {
+      leaves.push({
+        bx: r.range(w * 0.2, w * 0.8),
+        ang: -Math.PI / 2 + r.range(-1.15, 1.15),
+        L: r.range(h * 0.55, h * 1.1),
+        W: r.chance(0.6) ? r.range(3.5, 6.5) : r.range(1.5, 2.5),
+        droop: r.range(0.1, 0.6),
+      });
+    }
+    leaves.sort((p, q) => q.L - p.L);
+    for (const lf of leaves) {
+      const pts = [];
+      const N = 18;
+      const P = (t) => {
+        const x = lf.bx + Math.cos(lf.ang) * lf.L * t;
+        const y = h - 1 + Math.sin(lf.ang) * lf.L * t + lf.droop * lf.L * t * t;
+        return [x, y];
+      };
+      const side = [];
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        const [x, y] = P(t);
+        const [x2, y2] = P(Math.min(1, t + 0.02));
+        let tx = x2 - x, ty = y2 - y;
+        const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+        const ww = lf.W * Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.05)), 0.7);
+        pts.push([x - ty * ww, y + tx * ww]);
+        side.push([x + ty * ww, y - tx * ww]);
+      }
+      const poly = pts.concat(side.reverse());
+      pb.polyFn(poly, (x, y) => pb.set(x, y, ND.pack(...(ND.hash(x, y, seed) < 0.5 ? fill : fill2))));
+      // rim on the upper edge and a midrib
+      const upper = Math.sin(lf.ang) < 0 ? (Math.cos(lf.ang) < 0 ? pts : side) : pts;
+      for (let i = 1; i < upper.length - 1; i++) {
+        const [x, y] = upper[i];
+        pb.set(Math.round(x), Math.round(y), ND.pack(...ND.mix(fill2, rim, 0.45 + 0.4 * (i / upper.length))));
+      }
+      if (lf.W > 3) for (let i = 1; i < N; i++) { const [x, y] = P(i / N); pb.set(Math.round(x), Math.round(y), ND.pack(...vein)); }
+    }
+    return pb.canvas();
+  }
+
+  // Soft pool of light for the ground (dithered ellipse).
+  function genPool(w, h, color, strength) {
+    const pb = new ND.PB(w, h);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const dx = (x - w / 2 + 0.5) / (w / 2), dy = (y - h / 2 + 0.5) / (h / 2);
+        const d = dx * dx + dy * dy;
+        if (d >= 1) continue;
+        const a = Math.pow(1 - d, 1.6) * strength;
+        const q = Math.floor(a * 12 + ND.bayer(x, y)) / 12;
+        if (q > 0) pb.set(x, y, ND.pack(color[0] * q, color[1] * q, color[2] * q));
+      }
+    return pb.canvas();
+  }
+
+  // Vertical fade used for storefront spill on the sidewalk.
+  function genSpill(color) {
+    const w = 32, h = 26;
+    const pb = new ND.PB(w, h);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const ex = Math.min(1, Math.min(x + 1, w - x) / 6);
+        const a = Math.pow(1 - y / h, 1.4) * ex * 0.55;
+        const q = Math.floor(a * 12 + ND.bayer(x, y)) / 12;
+        if (q > 0) pb.set(x, y, ND.pack(color[0] * q, color[1] * q, color[2] * q));
+      }
+    return pb.canvas();
+  }
+
+  // Glow halo sprite (for lamps) into the emissive buffer.
+  function genHaloGlow(R, color, k) {
+    const S = R * 2;
+    const pb = new ND.PB(S, S);
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        const d = Math.hypot(x - R + 0.5, y - R + 0.5) / R;
+        if (d >= 1) continue;
+        const a = Math.pow(1 - d, 2.4) * k;
+        pb.set(x, y, ND.pack(color[0] * a, color[1] * a, color[2] * a));
+      }
+    return pb.canvas();
+  }
+
+  // Vignette (multiply-style darkening) for the final frame.
+  function genVignette(W, H) {
+    const pb = new ND.PB(W, H);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const dx = (x - W / 2) / (W / 2), dy = (y - H / 2) / (H / 2);
+        const d = Math.sqrt(dx * dx * 0.8 + dy * dy);
+        const a = ND.clamp((d - 0.65) * 0.55, 0, 0.5);
+        const q = Math.floor(a * 16 + ND.bayer(x, y)) / 16;
+        if (q > 0) pb.set(x, y, ND.pack(8, 2, 16, q * 255));
+      }
+    return pb.canvas();
+  }
+
+  ND.genLamp = genLamp;
+  ND.genPlanter = genPlanter;
+  ND.genBush = genBush;
+  ND.genPool = genPool;
+  ND.genSpill = genSpill;
+  ND.genHaloGlow = genHaloGlow;
+  ND.genVignette = genVignette;
+})();
+
+</script>
+  <script>/* src/world.js */
+/* Neon Drive — world simulation: parallax sequences, pedestrians, traffic, hero car. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { W, H, CX, Y, SPEED } = ND;
+
+  // ---------------------------------------------------------------------------
+  // Cooperative job queue: heavy sprite generators are JS generators that yield
+  // often, so building art is produced in small slices between frames.
+  // ---------------------------------------------------------------------------
+  class JobQueue {
+    constructor() { this.jobs = []; }
+    add(gen, done) { const j = { gen, done, finished: false }; this.jobs.push(j); return j; }
+    finish(j) {
+      if (j.finished) return;
+      let r;
+      do { r = j.gen.next(); } while (!r.done);
+      j.finished = true;
+      this.jobs.splice(this.jobs.indexOf(j), 1);
+      j.done(r.value);
+    }
+    run(budgetMs) {
+      const t0 = performance.now();
+      while (this.jobs.length && performance.now() - t0 < budgetMs) {
+        const j = this.jobs[0];
+        const r = j.gen.next();
+        if (r.done) {
+          j.finished = true;
+          this.jobs.shift();
+          j.done(r.value);
+        }
+      }
+    }
+  }
+  ND.JobQueue = JobQueue;
+
+  // ---------------------------------------------------------------------------
+  // Sequence layer: items laid out right-to-left in a layer coordinate `p`
+  // (p = distance of the item's left edge from the layer origin). Screen x of
+  // the left edge is round(D*f) + W - p, so everything drifts right as we
+  // drive left and new items enter from the left edge.
+  // ---------------------------------------------------------------------------
+  class Seq {
+    constructor(f, make, opts = {}) {
+      this.f = f;
+      this.make = make;
+      this.items = [];
+      this.cursor = opts.start != null ? opts.start : -(opts.margin || 80);
+      this.margin = opts.margin || 80;
+      this.look = opts.lookahead || 0;
+      this.script = opts.script ? opts.script.slice() : [];
+    }
+    shift(D) { return Math.round(D * this.f); }
+    x(it, D) { return this.shift(D) + W - it.p; }
+    update(D) {
+      const s = this.shift(D);
+      while (s + W - this.cursor > -this.margin - this.look) {
+        const it = this.script.length ? this.script.shift()(this) : this.make(this);
+        it.p = this.cursor + it.w;
+        this.cursor = it.p + (it.gap || 0);
+        this.items.push(it);
+        if (it.onSpawn) it.onSpawn(it);
+      }
+      while (this.items.length && this.x(this.items[0], D) > W + this.margin) {
+        const it = this.items.shift();
+        if (it.onRemove) it.onRemove(it);
+      }
+    }
+  }
+  ND.Seq = Seq;
+
+  // ---------------------------------------------------------------------------
+  class World {
+    constructor(seed = 1985) {
+      this.seed = seed;
+      this.r = ND.rng(seed);
+      this.tick = 0;
+      this.D = 0;
+      this.jobs = new JobQueue();
+      this.buildCache = new Map();
+
+      this.sky = new ND.Sky(seed + 1);
+      this.makePools();
+      this.makeSkyline();
+      this.makeBuildings();
+      this.makeCurb();
+      this.makeForeground();
+      this.walkers = [];
+      this.traffic = [];
+      this.hero = {
+        body: ND.genHeroCar(),
+        wheels: ND.genWheelFrames(),
+        x: 206,
+        y: Y.CAR - ND.HERO.H + 1,
+        angle: 0,
+        bob: 0,
+      };
+      this.nextWalker = 0;
+      this.nextCar = 0;
+      this.initialPopulation();
+      this.update(0, true);
+      // finish everything needed for the first frame synchronously
+      while (this.jobs.jobs.length) this.jobs.finish(this.jobs.jobs[0]);
+    }
+
+    makePools() {
+      const r = ND.rng(this.seed + 7);
+      this.people = [];
+      for (let i = 0; i < 26; i++) this.people.push(ND.genPerson(r.int(1, 1e9), i % 3 === 0 ? 'sil' : 'lit'));
+      this.idlers = [];
+      for (let i = 0; i < 18; i++) this.idlers.push(ND.genPerson(r.int(1, 1e9), i % 2 ? 'sil' : 'lit'));
+      this.heroWalker = ND.genHeroWalker(4242);
+      this.palms = [];
+      for (let i = 0; i < 7; i++) this.palms.push(ND.genPalm(r.int(1, 1e9), { h: i < 3 ? r.int(200, 240) : r.int(150, 210) }));
+      this.lamps = [ND.genLamp(11, 'globe'), ND.genLamp(12, 'cobra'), ND.genLamp(13, 'globe')];
+      this.planters = [];
+      for (let i = 0; i < 5; i++) this.planters.push(ND.genPlanter(r.int(1, 1e9)));
+      this.bushes = [];
+      for (let i = 0; i < 8; i++) this.bushes.push(ND.genBush(r.int(1, 1e9)));
+      this.trafficPool = [];
+      for (let i = 0; i < 7; i++) this.trafficPool.push(ND.genTraffic(r.int(1, 1e9)));
+      this.trafficPool.push(ND.genTraffic(77, { kind: 'coupe' }));
+      this.trafficPool[0] = ND.genTraffic(99, { kind: 'coupe', color: [110, 16, 34] });
+      this.lampHalo = ND.genHaloGlow(30, [255, 170, 80], 0.55);
+      this.lampPool = ND.genPool(90, 18, [255, 170, 90], 0.55);
+      this.spill = {};
+    }
+
+    spillFor(c) {
+      const k = c.map((v) => v | 0).join(',');
+      if (!this.spill[k]) this.spill[k] = ND.genSpill(c);
+      return this.spill[k];
+    }
+
+    // --- skyline ---------------------------------------------------------------
+    makeSkyline() {
+      const fs = [0.0625, 0.125, 0.25];
+      this.skyLayers = fs.map((f, d) => {
+        const r = ND.rng(this.seed * 31 + d);
+        let bridgeCooldown = 3;
+        const T = (w, top, o = {}) => () => ND.genTower(r.int(1, 1e9), d, { w, top, ...o });
+        const scripts = {
+          1: [T(38, 112, { neon: 'cyan', gap: 6 }), T(44, 66, { neon: 'pink', mode: 'edges', gap: 10 }), T(34, 128, { gap: 22 }),
+            T(40, 34, { style: 'flat', lit: 0.6, gap: 8 }), T(30, 96, { gap: 14 })],
+          2: [T(52, 150, { gap: 4 }), T(46, 128, { neon: 'magenta', mode: 'edges', gap: 30 }), T(60, 164, { gap: 12 })],
+        };
+        return new Seq(f, () => {
+          if (d === 2 && --bridgeCooldown <= 0 && r() < 0.18) {
+            bridgeCooldown = 10;
+            return ND.genBridge(r.int(1, 1e9));
+          }
+          return ND.genTower(r.int(1, 1e9), d);
+        }, { margin: 60, start: 0, script: scripts[d] || [] });
+      });
+    }
+
+    // --- street buildings ------------------------------------------------------
+    makeBuildings() {
+      const r = ND.rng(this.seed * 17 + 3);
+      this.bRng = r;
+      this.sinceHero = 0;
+      const heroHotel = () => ({
+        kind: 'hotel', key: 'colony', seed: 1985, w: 252, floors: 4, floorH: 38, groundH: 66, parapetH: 12, crownH: 0,
+        pal: ND.PALETTES.lavender, neonA: 'pink', neonB: 'pink', finX: 108, finW: 18,
+        blade: 'COLONY', bladeY: 34, bladeLetters: 'cyan', bladeBorder: 'blue', box: 'HOTEL', boxNeon: 'pink',
+        canopyNeon: 'pink', store: 'restaurant', neonPalm: 22, litP: 0.35, roofNeon: false,
+      });
+      const heroBar = () => ({
+        kind: 'bar', key: 'bar', seed: 77, w: 156, floors: 2, pal: ND.PALETTES.lilac, neonA: 'cyan', neonB: 'red', sign: 'BAR', store: 'bar', signDX: -6,
+      });
+      this.heroSpecs = { hotel: heroHotel, bar: heroBar };
+      const self = this;
+      const spawnSpec = (spec, gap) => (seq) => self.buildingItem(spec, gap);
+      this.buildings = new Seq(0.5, () => this.randomBuilding(), {
+        margin: 40,
+        lookahead: 420,
+        start: -30,
+        script: [
+          () => this.gapItem(240, 0),
+          spawnSpec(heroBar(), 2),
+          spawnSpec(heroHotel(), 0),
+        ],
+      });
+    }
+
+    pickName(list) {
+      const r = this.bRng;
+      this.recent = this.recent || [];
+      let n;
+      for (let k = 0; k < 12; k++) {
+        n = r.pick(list);
+        if (!this.recent.includes(n)) break;
+      }
+      this.recent.push(n);
+      if (this.recent.length > 8) this.recent.shift();
+      return n;
+    }
+
+    randomBuilding() {
+      const r = this.bRng;
+      this.sinceHero++;
+      if (this.sinceHero > 18 && r() < 0.3) {
+        this.sinceHero = 0;
+        return this.buildingItem(this.heroSpecs.hotel(), r.int(0, 3));
+      }
+      const t = r();
+      const gap = r() < 0.75 ? r.int(0, 3) : r.int(8, 22);
+      if (t < 0.14) return this.gapItem(r.int(60, 220), 0);
+      const seed = r.int(1, 1e9);
+      let kind = t < 0.52 ? 'hotel' : t < 0.68 ? 'bar' : t < 0.92 ? 'shop' : 'motel';
+      if (kind === this.lastKind && kind !== 'hotel') kind = 'hotel';
+      this.sinceMotel = (this.sinceMotel || 0) + 1;
+      if (kind === 'motel' && this.sinceMotel < 8) kind = 'shop';
+      if (kind === 'motel') this.sinceMotel = 0;
+      this.lastKind = kind;
+      if (kind === 'hotel') return this.buildingItem({ kind, seed, w: r.int(170, 250), name: r() < 0.8 ? this.pickName(ND.NAMES.hotel) : null }, gap);
+      if (kind === 'bar') return this.buildingItem({ kind, seed, w: r.int(120, 170), sign: this.pickName(ND.NAMES.bar) }, gap);
+      if (kind === 'shop') return this.buildingItem({ kind, seed, w: r.int(110, 170), sign: this.pickName(ND.NAMES.shop) }, gap);
+      return this.buildingItem({ kind, seed, w: r.int(170, 220), sign: r() < 0.7 ? 'MOTEL' : this.pickName(['INN', 'LODGE', 'MOTOR']) }, gap);
+    }
+
+    gapItem(w, gap) {
+      return { w, gap, isGap: true, data: null, crowd: [], planters: [] };
+    }
+
+    buildingItem(spec, gap) {
+      const it = { w: spec.w, gap, spec, data: null, crowd: [], planters: [] };
+      const key = spec.key;
+      const apply = (data) => {
+        it.data = data;
+        if (key) this.buildCache.set(key, data);
+        this.populateBuilding(it);
+      };
+      if (key && this.buildCache.has(key)) {
+        it.data = this.buildCache.get(key);
+        it.onSpawn = () => this.populateBuilding(it);
+      } else {
+        it.job = this.jobs.add(ND.BUILDING_GEN[spec.kind](spec), apply);
+      }
+      return it;
+    }
+
+    populateBuilding(it) {
+      const r = ND.rng((it.spec.seed | 0) + this.tick);
+      it.crowd = [];
+      it.planters = [];
+      const d = it.data;
+      const busy = d.kind === 'bar' || it.spec.store === 'restaurant' || it.spec.store === 'bar';
+      for (const x of d.crowd) {
+        if (r() > (busy ? 0.6 : 0.3)) continue;
+        const p = r.pick(this.idlers);
+        it.crowd.push({ x, p, face: r() < 0.5 ? 'idleR' : 'idleL', ph: r.int(0, 3), rate: r.int(28, 50), y: r.int(0, 3) });
+      }
+      if (d.kind === 'hotel' && r() < 0.8) {
+        const n = r.int(1, 2);
+        for (let i = 0; i < n; i++) it.planters.push({ x: r.int(0, it.w - 30), p: r.pick(this.planters) });
+      }
+      if (it.spec.key === 'colony') {
+        it.planters = [{ x: 60, p: this.planters[0] }, { x: 150, p: this.planters[1] }];
+      }
+    }
+
+    // --- curb: palms & lamps ------------------------------------------------------
+    makeCurb() {
+      const r = ND.rng(this.seed * 13 + 5);
+      const palm = (i, gap) => () => ({ w: 16, gap, type: 'palm', palm: this.palms[i % this.palms.length], ph: r() * 8 });
+      const lamp = (i, gap) => () => ({ w: 12, gap, type: 'lamp', lamp: this.lamps[i % this.lamps.length] });
+      this.curb = new Seq(0.75, () => {
+        const t = r();
+        if (t < 0.55) return { w: 16, gap: r.int(40, 150), type: 'palm', palm: r.pick(this.palms), ph: r() * 8 };
+        return { w: 12, gap: r.int(40, 120), type: 'lamp', lamp: r.pick(this.lamps) };
+      }, {
+        margin: 150,
+        start: -60,
+        script: [palm(3, 70), lamp(2, 88), lamp(0, 106), palm(4, 78), lamp(1, 69), palm(0, 159), palm(1, 60)],
+      });
+    }
+
+    makeForeground() {
+      const r = ND.rng(this.seed * 19 + 11);
+      this.fg = new Seq(1.5, () => {
+        const b = r.pick(this.bushes);
+        return { w: b.width * 2, gap: r.int(-40, 160), img: b, dy: r.int(0, 18) };
+      }, { margin: 240, start: -200 });
+    }
+
+    // --- pedestrians ----------------------------------------------------------------
+    spawnWalker(atX, opts = {}) {
+      const r = this.r;
+      const lane = opts.lane != null ? opts.lane : r() < 0.5 ? 0 : 1;
+      const y = lane === 0 ? 239 + r.int(0, 2) : 245 + r.int(0, 2);
+      const f = ND.fAt(y);
+      const dir = opts.dir || (r() < 0.5 ? 1 : -1); // +1 walks left (with traffic)
+      const v = dir * r.range(0.85, 1.1);
+      const x = atX != null ? atX : -40;
+      const P = this.D - (x - CX) / f;
+      this.walkers.push({ P, v, f, y, dir, sp: opts.sprite || r.pick(this.people), ph: r.int(0, 7), rate: Math.round(8 / Math.abs(v)) });
+    }
+
+    initialPopulation() {
+      const r = this.r;
+      this.spawnWalker(78, { lane: 0, dir: -1, sprite: this.heroWalker });
+      this.spawnWalker(250, { lane: 1 });
+      this.spawnWalker(420, { lane: 0 });
+      this.spawnWalker(560, { lane: 1 });
+      this.spawnWalker(20, { lane: 1 });
+      // traffic: a dark red coupe just behind the hero car, like the reference
+      this.spawnCar({ x: 520, v: SPEED - 0.25, sprite: this.trafficPool[0] });
+      this.nextWalker = this.tick + r.int(60, 160);
+      this.nextCar = this.tick + r.int(600, 1200);
+    }
+
+    // --- traffic ----------------------------------------------------------------------
+    spawnCar(opts = {}) {
+      const r = this.r;
+      const f = ND.fAt(Y.FAR);
+      const sprite = opts.sprite || r.pick(this.trafficPool);
+      const v = opts.v != null ? opts.v : r() < 0.5 ? SPEED + r.range(0.25, 0.6) : SPEED - r.range(0.25, 0.7);
+      let x = opts.x;
+      if (x == null) x = v > SPEED ? W + 30 : -sprite.w - 30;
+      const P = this.D - (x - CX) / f;
+      // keep a safe distance from other cars
+      for (const c of this.traffic) if (Math.abs(c.P - P) < 260) return false;
+      this.traffic.push({ P, v, f, sp: sprite, wa: 0 });
+      return true;
+    }
+
+    // --- update -----------------------------------------------------------------------
+    update(dtTicks = 1, init = false) {
+      if (!init) {
+        this.tick++;
+        this.D += SPEED;
+      }
+      const D = this.D;
+      for (const l of this.skyLayers) l.update(D);
+      this.buildings.update(D);
+      this.curb.update(D);
+      this.fg.update(D);
+
+      // walkers
+      for (const w of this.walkers) w.P += w.v * (init ? 0 : 1);
+      this.walkers = this.walkers.filter((w) => {
+        const x = CX + (D - w.P) * w.f;
+        return x < W + 60 && x > -120;
+      });
+      if (!init && this.tick >= this.nextWalker) {
+        if (this.walkers.length < 10) this.spawnWalker(null);
+        this.nextWalker = this.tick + this.r.int(18, 90);
+      }
+
+      // traffic
+      // car following: never drive into the car ahead (larger P = further along)
+      const lane = this.traffic.slice().sort((a, b) => b.P - a.P);
+      for (let i = 0; i < lane.length; i++) {
+        const me = lane[i];
+        if (me.v0 == null) me.v0 = me.v;
+        const ahead = lane[i - 1];
+        const gap = ahead ? ahead.P - ahead.sp.w / ahead.f - me.P : Infinity;
+        if (gap < 60) me.v = Math.min(me.v, ahead.v - 0.05);
+        else if (gap < 140) me.v += (Math.min(me.v0, ahead.v) - me.v) * 0.05;
+        else me.v += (me.v0 - me.v) * 0.01;
+      }
+      for (const c of this.traffic) {
+        c.P += c.v * (init ? 0 : 1);
+        c.wa += c.v / 10;
+      }
+      this.traffic = this.traffic.filter((c) => {
+        const x = CX + (D - c.P) * c.f;
+        return x < W + 80 && x > -c.sp.w - 80;
+      });
+      if (!init && this.tick >= this.nextCar) {
+        if (this.traffic.length < 2) this.spawnCar();
+        this.nextCar = this.tick + this.r.int(420, 1400);
+      }
+
+      // hero car: wheel spin, gentle suspension and drift
+      const hero = this.hero;
+      hero.angle += SPEED / ND.HERO.WHEEL_R;
+      const t = this.tick / 60;
+      hero.dx = Math.round(Math.sin(t * 0.13) * 5 + Math.sin(t * 0.041 + 1) * 7);
+      const bump = ND.hash(Math.floor(this.tick / 97), 5) < 0.35 && this.tick % 97 < 6;
+      hero.bob = bump ? 1 : 0;
+    }
+
+    // run a slice of queued generation work
+    work(budgetMs) { this.jobs.run(budgetMs); }
+  }
+
+  ND.World = World;
+})();
+
+</script>
+  <script>/* src/renderer.js */
+/* Neon Drive — frame renderer: layered composition, emissive buffer, wet-road
+ * reflections, bloom and final presentation at integer pixel scale. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { W, H, CX, Y } = ND;
+  const CURB = Y.CURB;
+  const RH = H - CURB;
+
+  function smoothCtx(cv) {
+    const x = cv.getContext('2d');
+    x.imageSmoothingEnabled = true;
+    return x;
+  }
+
+  // Mode-7 style ground texture for the road: alpha = how much the asphalt
+  // hides the reflection (puddles are nearly transparent = mirror-like).
+  function makeRoadTexture(seed) {
+    const T = 1024;
+    const pb = new ND.PB(T, RH);
+    for (let j = 0; j < RH; j++) {
+      const y = CURB + j;
+      const f = ND.fAt(y);
+      const depth = 1 / f;
+      for (let u = 0; u < T; u++) {
+        const n = (a) => ND.fbm(a / 70, depth * 4.2, 4, seed);
+        const k = u / T;
+        const nn = n(u) * (1 - k) + n(u - T) * k; // periodic blend
+        let a = 0.62;
+        const puddle = ND.clamp((nn - 0.5) * 7, 0, 1);
+        a = a * (1 - puddle * 0.88);
+        let c = [12, 8, 22];
+        const g = ND.hash(u, j, seed);
+        if (g < 0.06) { c = [38, 30, 52]; a = Math.max(a, 0.55); }
+        else if (g > 0.95) { a = Math.max(0, a - 0.2); }
+        // gutter along the curb
+        if (j < 5) { a = Math.max(a, 0.72 - j * 0.08); c = [10, 6, 16]; }
+        // lane dashes
+        if (y >= 298 && y <= 300 && u % 72 < 38) {
+          c = y === 298 ? [255, 196, 96] : [214, 140, 40];
+          a = 0.85;
+        }
+        pb.set(u, j, ND.pack(c[0], c[1], c[2], a * 255));
+      }
+    }
+    return { canvas: pb.canvas(), T };
+  }
+
+  function makeSidewalkTexture(seed) {
+    const T = 1024, SH = CURB - Y.BUILD;
+    const pb = new ND.PB(T, SH);
+    for (let j = 0; j < SH; j++) {
+      const t = j / (SH - 1);
+      for (let u = 0; u < T; u++) {
+        let c = ND.mix([76, 42, 84], [58, 32, 72], t);
+        const n = ND.fbm(u / 40, j / 3, 3, seed) - 0.5;
+        c = ND.scale(c, 1 + n * 0.25);
+        if (u % 48 < 3) c = ND.scale(c, 0.55);        // expansion joints
+        if (j === 0) c = ND.scale(c, 0.7);             // building base shadow
+        if (ND.hash(u, j, seed) < 0.04) c = ND.scale(c, 1.3);
+        pb.dset(u, j, c, 255, 8);
+      }
+    }
+    return { canvas: pb.canvas(), T, SH };
+  }
+
+  // Draws a horizontally tiling texture row with ground-plane perspective.
+  function mode7Row(ctx, tex, T, row, y, D, f, n = 1) {
+    const sw = W / f;
+    let u0 = (-D - CX / f) % T;
+    if (u0 < 0) u0 += T;
+    if (u0 + sw <= T) {
+      ctx.drawImage(tex, u0, row, sw, n, 0, y, W, n);
+    } else {
+      const w1 = T - u0;
+      const dx = Math.round(w1 * f);
+      ctx.drawImage(tex, u0, row, w1, n, 0, y, dx, n);
+      ctx.drawImage(tex, 0, row, sw - w1, n, dx, y, W - dx, n);
+    }
+  }
+
+  class Renderer {
+    constructor(world, opts = {}) {
+      this.world = world;
+      this.opts = opts;
+      this.scene = ND.canvas(W, H);
+      this.c = ND.ctx(this.scene);
+      this.glowC = ND.canvas(W, H);
+      this.g = ND.ctx(this.glowC);
+
+      this.bl = [ND.canvas(W / 2, H / 2), ND.canvas(W / 4, H / 4), ND.canvas(W / 8, Math.ceil(H / 8)), ND.canvas(W / 16, Math.ceil(H / 16))];
+      this.blx = this.bl.map(smoothCtx);
+
+      this.K = 1.45;
+      this.TOPB = CURB - Math.ceil(RH * this.K) - 8;
+      this.BH = CURB - this.TOPB;
+      this.upper = ND.canvas(W, this.BH);
+      this.upx = ND.ctx(this.upper);
+      this.mix = ND.canvas(W, this.BH);
+      this.mx = ND.ctx(this.mix);
+      this.mb = [ND.canvas(W, Math.ceil(this.BH / 2)), ND.canvas(W, Math.ceil(this.BH / 4)), ND.canvas(W, Math.ceil(this.BH / 8))];
+      this.mbx = this.mb.map(smoothCtx);
+      this.wet = { ripple: 1, mirror: 1, streak: 1 };
+      this.rsrc = ND.canvas(W, this.BH);
+      this.rsx = ND.ctx(this.rsrc);
+      this.fresnel = (() => {
+        const pb = new ND.PB(W, RH);
+        for (let j = 0; j < RH; j++)
+          for (let x = 0; x < W; x++) {
+            const a = ND.clamp(0.12 + (j / RH) * 0.55, 0, 1);
+            const q = Math.floor(a * 16 + ND.bayer(x, j)) / 16;
+            pb.set(x, j, ND.pack(12, 8, 24, q * 255));
+          }
+        return pb.canvas();
+      })();
+      this.refl = ND.canvas(W, RH);
+      this.rx = ND.ctx(this.refl);
+      this.strip = ND.canvas(W, 26);
+      this.sx = ND.ctx(this.strip);
+
+      this.carC = ND.canvas(ND.HERO.W, ND.HERO.H);
+      this.carX = ND.ctx(this.carC);
+      this.trafC = ND.canvas(162, 48);
+      this.trafX = ND.ctx(this.trafC);
+
+      this.road = makeRoadTexture(world.seed + 3);
+      this.walk = makeSidewalkTexture(world.seed + 4);
+      this.vignette = ND.genVignette(W, H);
+      this.vigTop = 110;
+      this.vigSide = 190;
+      this.haze = this.makeHaze();
+      this.bloom = opts.bloom != null ? opts.bloom : 0.62;
+      // quality: 2 = full, 1 = coarser ground/reflection rows, 0 = minimal
+      this.q = opts.quality != null ? opts.quality : 2;
+    }
+
+    makeHaze() {
+      const pb = new ND.PB(W, 120);
+      for (let y = 0; y < 120; y++)
+        for (let x = 0; x < W; x++) {
+          const t = y / 119;
+          const a = Math.sin(t * Math.PI) * 0.16 + t * 0.06;
+          const q = Math.floor(a * 20 + ND.bayer(x, y)) / 20;
+          if (q > 0) pb.set(x, y, ND.pack(120, 50, 140, q * 255));
+        }
+      return pb.canvas();
+    }
+
+    // Draw a sprite into the colour buffer; it occludes glow behind it and
+    // contributes its own emissive pixels.
+    spr(s, x, y) {
+      this.c.drawImage(s.c, x, y);
+      this.occlude(s.c, x, y);
+      if (s.g) this.g.drawImage(s.g, x, y);
+    }
+    occlude(img, x, y, w, h) {
+      const g = this.g;
+      g.globalCompositeOperation = 'destination-out';
+      if (w) g.drawImage(img, x, y, w, h);
+      else g.drawImage(img, x, y);
+      g.globalCompositeOperation = 'lighter';
+    }
+
+    render() {
+      const w = this.world, c = this.c, g = this.g;
+      const t = w.tick / 60;
+      const R = { c, g, t, tick: w.tick, D: w.D, r: this };
+      c.globalCompositeOperation = 'source-over';
+      c.globalAlpha = 1;
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+      g.clearRect(0, 0, W, H);
+      g.globalCompositeOperation = 'lighter';
+
+      w.sky.draw(R);
+      this.drawSkyline(R);
+      this.drawBuildings(R);
+      this.drawSidewalk(R);
+      this.drawStreetLife(R);
+      this.drawCurb(R);
+      this.drawRoad(R);
+      this.drawTraffic(R);
+      this.drawHero(R);
+      this.drawForeground(R);
+      this.post(R);
+    }
+
+    // ---------------------------------------------------------------------------
+    drawSkyline(R) {
+      const { c, g } = R;
+      const w = this.world;
+      w.skyLayers.forEach((layer, d) => {
+        for (const it of layer.items) {
+          const x = layer.x(it, R.D);
+          if (x > W || x + it.w < 0) continue;
+          this.spr(it.spr, x, it.y);
+          for (const a of it.anims) this.anim(R, a, x, it.y);
+        }
+        if (d === 1) c.drawImage(this.haze, 0, 128);
+      });
+      c.globalAlpha = 0.7;
+      c.drawImage(this.haze, 0, 150);
+      c.globalAlpha = 1;
+    }
+
+    anim(R, a, ox, oy) {
+      const { c, g, t } = R;
+      switch (a.type) {
+        case 'blink': {
+          const ph = (t / a.period + a.phase) % 1;
+          if (ph < 0.12) {
+            c.fillStyle = ND.css(a.color);
+            c.fillRect(ox + a.x, oy + a.y, 1, 1);
+            g.fillStyle = ND.css(a.color, 0.9);
+            g.fillRect(ox + a.x - 1, oy + a.y, 3, 1);
+            g.fillRect(ox + a.x, oy + a.y - 1, 1, 3);
+          }
+          break;
+        }
+        case 'bridgeCars': {
+          for (const car of a.cars) {
+            let px = (car.off + R.tick * car.v * car.dir) % a.w;
+            if (px < 0) px += a.w;
+            const x = Math.round(ox + px), y = oy + a.y + (car.dir > 0 ? 1 : 0);
+            if (car.dir > 0) {
+              c.fillStyle = '#ff3a4a'; c.fillRect(x, y, 2, 1);
+              g.fillStyle = 'rgba(255,40,60,0.8)'; g.fillRect(x - 1, y, 4, 1);
+            } else {
+              c.fillStyle = '#fff4d0'; c.fillRect(x, y, 2, 1);
+              g.fillStyle = 'rgba(255,240,200,0.8)'; g.fillRect(x - 1, y, 4, 1);
+            }
+          }
+          break;
+        }
+        case 'flicker': {
+          let off = false;
+          if (a.slow) off = Math.floor(t * 0.8 + a.seed) % 2 === 1;
+          else {
+            const k = Math.floor(t * 12);
+            const burst = ND.hash(Math.floor(t * 0.5), a.seed | 0) < a.rate * 4;
+            off = burst && ND.hash(k, (a.seed | 0) + 1) < 0.45;
+          }
+          if (off && a.off) {
+            c.drawImage(a.off, ox + a.x, oy + a.y);
+            g.globalCompositeOperation = 'destination-out';
+            g.fillStyle = '#000';
+            g.fillRect(ox + a.x, oy + a.y, a.w, a.h);
+            g.globalCompositeOperation = 'lighter';
+          }
+          break;
+        }
+        case 'chase': {
+          const step = Math.floor(t * a.speed);
+          c.fillStyle = ND.css(a.color);
+          g.fillStyle = ND.css(a.glow, 0.9);
+          for (let i = 0; i < a.pts.length; i++) {
+            if ((i + step) % 3) continue;
+            const [px, py] = a.pts[i];
+            c.fillRect(ox + px, oy + py, 1, 1);
+            g.fillRect(ox + px - 1, oy + py, 3, 1);
+          }
+          break;
+        }
+        case 'tv': {
+          const k = Math.floor(t * 8 + a.seed);
+          const v = ND.hash(k, a.seed | 0);
+          const col = v < 0.5 ? [90, 140, 255] : v < 0.8 ? [150, 200, 255] : [255, 255, 255];
+          c.globalAlpha = 0.35 + v * 0.3;
+          c.fillStyle = ND.css(col);
+          c.fillRect(ox + a.x, oy + a.y, a.w, a.h);
+          c.globalAlpha = 1;
+          g.fillStyle = ND.css(col, 0.25);
+          g.fillRect(ox + a.x, oy + a.y, a.w, a.h);
+          break;
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    drawBuildings(R) {
+      const w = this.world, layer = w.buildings;
+      for (const it of layer.items) {
+        if (it.isGap) continue;
+        const x = layer.x(it, R.D);
+        if (x > W || x + it.w < 0) continue;
+        if (!it.data) w.jobs.finish(it.job);
+        const d = it.data;
+        this.spr(d.spr, x, d.y);
+        for (const a of d.anims) this.anim(R, a, x, d.y);
+      }
+    }
+
+    drawSidewalk(R) {
+      const { c, g } = R;
+      const w = this.world;
+      const y0 = Y.BUILD, SH = this.walk.SH;
+      // wet reflection source: the bottom of the buildings
+      this.sx.clearRect(0, 0, W, 26);
+      this.sx.drawImage(this.scene, 0, y0 - 26, W, 26, 0, 0, W, 26);
+      const rs = this.q >= 2 ? 1 : 2;
+      for (let j = 0; j < SH; j += rs) {
+        const y = y0 + j;
+        mode7Row(c, this.walk.canvas, this.walk.T, j, y, R.D, ND.fAt(y), Math.min(rs, SH - j));
+      }
+      // mirrored building bases
+      for (let j = 1; j < SH; j++) {
+        c.globalAlpha = 0.32 * (1 - j / SH);
+        const sy = 25 - Math.floor(j * 1.3);
+        if (sy < 0) break;
+        c.drawImage(this.strip, 0, sy, W, 1, 0, y0 + j, W, 1);
+      }
+      c.globalAlpha = 1;
+      // storefront light spilling onto the wet pavement
+      c.globalCompositeOperation = 'lighter';
+      const layer = w.buildings;
+      for (const it of layer.items) {
+        if (!it.data) continue;
+        const x = layer.x(it, R.D);
+        if (x > W || x + it.w < 0) continue;
+        for (const p of it.data.pools) {
+          c.globalAlpha = p.s;
+          c.drawImage(w.spillFor(p.c), x + p.x0 - 4, y0, p.x1 - p.x0 + 8, SH);
+        }
+      }
+      c.globalAlpha = 1;
+      // lamp pools
+      const curb = w.curb;
+      for (const it of curb.items) {
+        if (it.type !== 'lamp') continue;
+        const x = curb.x(it, R.D);
+        if (x < -60 || x > W + 60) continue;
+        c.drawImage(w.lampPool, x - 45, CURB - 12);
+      }
+      c.globalCompositeOperation = 'source-over';
+    }
+
+    drawStreetLife(R) {
+      const { c } = R;
+      const w = this.world, layer = w.buildings;
+      const FOOT = ND.PERSON.FOOT, FW = ND.PERSON.FW;
+      // planters and patio crowds move with the buildings (f = 0.5)
+      for (const it of layer.items) {
+        if (!it.data || it.isGap) continue;
+        const x = layer.x(it, R.D);
+        if (x > W + 40 || x + it.w < -40) continue;
+        for (const p of it.planters) {
+          const img = p.p;
+          c.drawImage(img.c, x + p.x, 236 - img.h);
+          this.occlude(img.c, x + p.x, 236 - img.h);
+        }
+        for (const cr of it.crowd) {
+          const fr = Math.floor(R.tick / cr.rate + cr.ph) % 4;
+          const img = cr.p[cr.face][fr];
+          const px = x + cr.x - FW / 2, py = 232 + cr.y - FOOT;
+          c.drawImage(img, px, py);
+          this.occlude(img, px, py);
+        }
+      }
+      // walkers, back to front
+      const walkers = w.walkers.slice().sort((a, b) => a.y - b.y);
+      for (const p of walkers) {
+        const x = Math.round(CX + (R.D - p.P) * p.f);
+        if (x < -30 || x > W + 30) continue;
+        const fr = Math.floor(R.tick / p.rate + p.ph) % 8;
+        const img = (p.dir > 0 ? p.sp.walkL : p.sp.walkR)[fr];
+        c.drawImage(img, x - FW / 2, p.y - FOOT);
+        this.occlude(img, x - FW / 2, p.y - FOOT);
+      }
+    }
+
+    drawCurb(R) {
+      const { c, g, t } = R;
+      const w = this.world, curb = w.curb;
+      const base = CURB - 1;
+      for (const it of curb.items) {
+        const x = curb.x(it, R.D);
+        if (it.type === 'lamp') {
+          const L = it.lamp;
+          if (x < -40 || x > W + 40) continue;
+          const lx = x - L.baseX, ly = base - L.h + 2;
+          this.spr(L.spr, lx, ly);
+          g.drawImage(w.lampHalo, lx + L.light[0] - 30, ly + L.light[1] - 30);
+        } else {
+          const P = it.palm;
+          if (x < -P.S || x > W + P.S) continue;
+          const tx = x - P.bx, ty = base - P.h;
+          c.drawImage(P.trunk.c, tx, ty);
+          this.occlude(P.trunk.c, tx, ty);
+          const fr = Math.floor(t * 2.2 + it.ph) % ND.PALM_FRAMES;
+          const img = P.crowns[fr];
+          const cx = x + Math.round(P.topDX) - Math.round(P.ccx), cy = ty - Math.round(P.ccy);
+          c.drawImage(img, cx, cy);
+          this.occlude(img, cx, cy);
+        }
+      }
+      // the curb itself
+      c.fillStyle = '#b388c0';
+      c.fillRect(0, CURB, W, 1);
+      c.fillStyle = '#3a2248';
+      c.fillRect(0, CURB + 1, W, 1);
+      c.fillStyle = '#1e1028';
+      c.fillRect(0, CURB + 2, W, 2);
+    }
+
+    // ---------------------------------------------------------------------------
+    drawRoad(R) {
+      const { c, g, t } = R;
+      const wet = this.wet;
+      const TOPB = this.TOPB, BH = this.BH;
+      // snapshot the band of the upper world that the road can reflect
+      this.upx.drawImage(this.scene, 0, TOPB, W, BH, 0, 0, W, BH);
+      // mix colour + emissive light, then smear it vertically (wet asphalt
+      // scatters reflections into long streaks)
+      const mx = this.mx;
+      mx.globalCompositeOperation = 'source-over';
+      mx.clearRect(0, 0, W, BH);
+      mx.globalAlpha = 0.34 * wet.mirror;
+      mx.drawImage(this.upper, 0, 0);
+      mx.globalCompositeOperation = 'lighter';
+      mx.globalAlpha = 1.2 * wet.streak;
+      mx.drawImage(this.glowC, 0, TOPB, W, BH, 0, 0, W, BH);
+      mx.globalAlpha = 1;
+      const mb = this.mb, mbx = this.mbx;
+      let src = this.mix;
+      for (let i = 0; i < mb.length; i++) {
+        mbx[i].clearRect(0, 0, W, mb[i].height);
+        mbx[i].drawImage(src, 0, 0, W, src.height, 0, 0, W, mb[i].height);
+        src = mb[i];
+      }
+      const sx = this.rsx;
+      sx.globalCompositeOperation = 'source-over';
+      sx.globalAlpha = 1;
+      sx.fillStyle = '#0c0818';
+      sx.fillRect(0, 0, W, BH);
+      sx.globalAlpha = 0.16 * wet.mirror;
+      sx.drawImage(this.upper, 0, 0);
+      sx.globalCompositeOperation = 'lighter';
+      this.rsx.imageSmoothingEnabled = true;
+      sx.globalAlpha = 1;
+      sx.drawImage(mb[2], 0, 0, W, mb[2].height, 0, 0, W, BH);
+      sx.globalAlpha = 0.45;
+      sx.drawImage(mb[0], 0, 0, W, mb[0].height, 0, 0, W, BH);
+      this.rsx.imageSmoothingEnabled = false;
+      sx.globalAlpha = 1;
+      sx.globalCompositeOperation = 'source-over';
+
+      // mirror it row by row with ripple distortion
+      const rx = this.rx;
+      rx.globalCompositeOperation = 'source-over';
+      rx.fillStyle = '#0c0818';
+      rx.fillRect(0, 0, W, RH);
+      const K = this.K;
+      const rstep = this.q >= 2 ? 1 : 2;
+      for (let j = 0; j < RH; j += rstep) {
+        const q = j / RH;
+        const jit = (ND.noise(j * 0.7, t * 2.2, 5) - 0.5) * 3 * q;
+        const sy = CURB - 1 - Math.floor((j + 1) * K + jit) - TOPB;
+        if (sy < 0) break;
+        const amp = (0.6 + q * 3.2) * wet.ripple;
+        const dx = Math.round((ND.noise(j * 0.33, t * 0.9, 9) - 0.5) * 2 * amp + (ND.noise(j * 1.3, t * 3.1, 11) - 0.5) * amp * 0.8);
+        rx.drawImage(this.rsrc, 0, sy, W, 1, dx, j, W, rstep);
+      }
+      // Fresnel: reflections fade as we look more steeply down at the road
+      rx.drawImage(this.fresnel, 0, 0);
+
+      c.fillStyle = '#0c0818';
+      c.fillRect(0, CURB + 4, W, RH - 4);
+      c.drawImage(this.refl, 0, 4, W, RH - 4, 0, CURB + 4, W, RH - 4);
+      g.globalAlpha = 0.35;
+      g.drawImage(this.refl, 0, 4, W, RH - 4, 0, CURB + 4, W, RH - 4);
+      g.globalAlpha = 1;
+      // asphalt with ground-plane perspective (puddles let reflections through)
+      const ms = this.q >= 2 ? 1 : 2;
+      for (let j = 4; j < RH; j += ms) {
+        const y = CURB + j;
+        mode7Row(c, this.road.canvas, this.road.T, j, y, R.D, ND.fAt(y), Math.min(ms, RH - j));
+      }
+    }
+
+    // Draws a sprite canvas mirrored below groundY, row by row with ripples.
+    reflect(img, x, groundY, h, alpha, t, rows) {
+      const c = this.c;
+      const n = Math.min(rows || h, H - groundY - 1);
+      const st = this.q >= 2 ? 1 : 2;
+      for (let k = 0; k < n; k += st) {
+        const sy = h - 1 - k;
+        if (sy < 0) break;
+        const y = groundY + 1 + k;
+        const amp = (0.5 + ((y - CURB) / RH) * 2.6) * this.wet.ripple;
+        const dx = Math.round((ND.noise(y * 0.33, t * 0.9, 9) - 0.5) * 2 * amp + (ND.noise(y * 1.3, t * 3.1, 11) - 0.5) * amp * 0.8);
+        c.globalAlpha = alpha * (1 - k / (n * 1.15));
+        c.drawImage(img, 0, sy, img.width, 1, x + dx, y, img.width, st);
+      }
+      c.globalAlpha = 1;
+    }
+
+    drawTraffic(R) {
+      const w = this.world;
+      const tx = this.trafX;
+      for (const car of w.traffic) {
+        const x = Math.round(CX + (R.D - car.P) * car.f);
+        const S = car.sp;
+        if (x > W + 10 || x + S.w < -10) continue;
+        tx.clearRect(0, 0, S.w, S.h);
+        tx.drawImage(S.body.c, 0, 0);
+        const fr = Math.floor(car.wa) % 4;
+        for (const [wx, wy] of S.wheels) tx.drawImage(S.wheelFrames[fr], wx - 10, wy - 10);
+        const y = Y.FAR - S.ground;
+        this.reflect(this.trafC, x, Y.FAR, S.h, 0.3, R.t, 30);
+        this.c.drawImage(this.trafC, x, y);
+        this.occlude(this.trafC, x, y);
+        if (S.body.g) this.g.drawImage(S.body.g, x, y);
+        if (S.bar) {
+          const on = Math.floor(R.t * 6) % 2;
+          const col = on ? '#ff2040' : '#3060ff';
+          this.c.fillStyle = col;
+          this.c.fillRect(x + S.bar.x + (on ? 0 : 10), y + S.bar.y, 10, 3);
+          this.g.fillStyle = col;
+          this.g.fillRect(x + S.bar.x + (on ? -4 : 8), y + S.bar.y - 2, 14, 7);
+        }
+        // tail light streak on the wet road
+        this.g.fillStyle = 'rgba(255,30,50,0.35)';
+        this.g.fillRect(x + S.w - 6, Y.FAR + 2, 5, 22);
+      }
+    }
+
+    drawHero(R) {
+      const w = this.world, h = w.hero;
+      const cx = this.carX, HW = ND.HERO.W, HH = ND.HERO.H;
+      cx.clearRect(0, 0, HW, HH);
+      cx.drawImage(h.body.c, 0, h.bob);
+      const WF = h.wheels;
+      const fr = Math.floor(((h.angle % WF.period) + WF.period) % WF.period / WF.period * WF.frames.length) % WF.frames.length;
+      for (const [wx, wy] of ND.HERO.WHEELS) cx.drawImage(WF.frames[fr], wx - WF.R, wy - WF.R);
+      const x = h.x + (h.dx || 0), y = h.y;
+      this.reflect(this.carC, x, Y.CAR, HH, 0.34, R.t, 80);
+      this.c.drawImage(this.carC, x, y);
+      this.occlude(this.carC, x, y);
+      this.g.drawImage(h.body.g, x, y + h.bob);
+      // light streaks on the road below tail and marker lights
+      const g = this.g;
+      g.fillStyle = 'rgba(255,30,50,0.45)';
+      g.fillRect(x + 293, Y.CAR + 3, 6, 40);
+      g.fillStyle = 'rgba(255,150,30,0.35)';
+      g.fillRect(x + 1, Y.CAR + 6, 6, 26);
+    }
+
+    drawForeground(R) {
+      const w = this.world, fg = w.fg, c = this.c;
+      for (const it of fg.items) {
+        const x = fg.x(it, R.D);
+        if (x > W || x + it.w < 0) continue;
+        const img = it.img;
+        const y = H - img.height * 2 + 10 + it.dy;
+        c.drawImage(img, x, y, img.width * 2, img.height * 2);
+        this.occlude(img, x, y, img.width * 2, img.height * 2);
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    post(R) {
+      const c = this.c;
+      // bloom: downsample chain, then accumulate back up
+      const bl = this.bl, bx = this.blx;
+      bx[0].globalCompositeOperation = 'source-over';
+      bx[0].clearRect(0, 0, bl[0].width, bl[0].height);
+      bx[0].drawImage(this.glowC, 0, 0, bl[0].width, bl[0].height);
+      const levels = this.q >= 1 ? bl.length : 3;
+      for (let i = 1; i < levels; i++) {
+        bx[i].globalCompositeOperation = 'source-over';
+        bx[i].clearRect(0, 0, bl[i].width, bl[i].height);
+        bx[i].drawImage(bl[i - 1], 0, 0, bl[i].width, bl[i].height);
+      }
+      for (let i = levels - 1; i > 0; i--) {
+        bx[i - 1].globalCompositeOperation = 'lighter';
+        bx[i - 1].drawImage(bl[i], 0, 0, bl[i - 1].width, bl[i - 1].height);
+      }
+      c.imageSmoothingEnabled = true;
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = this.bloom;
+      c.drawImage(bl[0], 0, 0, W, H);
+      c.globalAlpha = 1;
+      c.globalCompositeOperation = 'source-over';
+      c.imageSmoothingEnabled = false;
+      // vignette: only its non-empty border strips
+      const v = this.vignette, vt = this.vigTop, vs = this.vigSide;
+      c.drawImage(v, 0, 0, W, vt, 0, 0, W, vt);
+      c.drawImage(v, 0, H - vt, W, vt, 0, H - vt, W, vt);
+      c.drawImage(v, 0, vt, vs, H - 2 * vt, 0, vt, vs, H - 2 * vt);
+      c.drawImage(v, W - vs, vt, vs, H - 2 * vt, W - vs, vt, vs, H - 2 * vt);
+    }
+  }
+
+  ND.Renderer = Renderer;
+})();
+
+</script>
+  <script>/* src/main.js */
+/* Neon Drive — boot, fixed-step main loop and pixel-perfect presentation. */
+(function () {
+  'use strict';
+  const ND = window.ND;
+  const { W, H } = ND;
+
+  const params = new URLSearchParams(location.search);
+  const seed = parseInt(params.get('seed') || '1985', 10);
+  const debug = params.has('debug');
+
+  const screen = document.getElementById('screen');
+  const sctx = screen.getContext('2d', { alpha: false });
+  const hud = document.getElementById('hud');
+  const stats = document.getElementById('stats');
+
+  let world, renderer;
+  let paused = params.has('paused');
+
+  // --- presentation: exact integer scale where possible, otherwise nearest
+  // upscale to the next integer and a smooth downscale ("sharp bilinear").
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const cw = window.innerWidth * dpr, ch = window.innerHeight * dpr;
+    const s = Math.min(cw / W, ch / H);
+    const exact = Math.abs(s - Math.round(s)) < 0.01 && Math.round(s) >= 1;
+    const k = exact ? Math.round(s) : Math.max(1, Math.ceil(s));
+    screen.width = W * k;
+    screen.height = H * k;
+    const cssW = (W * (exact ? k : s)) / dpr, cssH = (H * (exact ? k : s)) / dpr;
+    screen.style.width = cssW + 'px';
+    screen.style.height = cssH + 'px';
+    screen.style.imageRendering = exact ? 'pixelated' : 'auto';
+    sctx.imageSmoothingEnabled = false;
+  }
+
+  function present() {
+    sctx.imageSmoothingEnabled = false;
+    sctx.drawImage(renderer.scene, 0, 0, screen.width, screen.height);
+  }
+
+  // --- fixed 60 Hz simulation; dt snapped to the refresh interval to avoid
+  // judder from timer noise.
+  const STEP = 1000 / 60;
+  let last = 0, acc = 0;
+  let frames = 0, fpsT = 0, fps = 0, worst = 0, renderMs = 0;
+  // performance bookkeeping (also drives adaptive quality)
+  const perf = (ND.perf = { frames: 0, steps: [0, 0, 0, 0, 0, 0, 0], renderMax: 0, renderSum: 0, drops: 0, quality: 2 });
+  let win = 0, winDrops = 0, winRender = 0;
+  const forcedQ = params.get('q');
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!last) last = now;
+    let dt = now - last;
+    last = now;
+    if (dt > 250) dt = STEP;
+    const k = Math.round(dt / STEP);
+    if (k >= 1 && Math.abs(dt - k * STEP) < 2.2) dt = k * STEP;
+    if (!paused) acc += dt;
+    let steps = 0;
+    while (acc >= STEP - 0.01 && steps < 6) {
+      world.update();
+      acc -= STEP;
+      steps++;
+    }
+    if (steps >= 6) acc = 0;
+    if (steps > 0) {
+      const t0 = performance.now();
+      renderer.render();
+      present();
+      renderMs = performance.now() - t0;
+      worst = Math.max(worst, renderMs);
+    }
+    if (!paused) {
+      perf.frames++;
+      perf.steps[Math.min(6, steps)]++;
+      perf.renderMax = Math.max(perf.renderMax, renderMs);
+      perf.renderSum += renderMs;
+      if (k >= 2 && k < 10) { perf.drops++; winDrops++; }
+      win++;
+      winRender += renderMs;
+      // adaptive quality: step detail down if this machine keeps missing frames
+      if (win >= 180) {
+        if (forcedQ == null && renderer.q > 0 && (winDrops > 18 || winRender / win > 11)) {
+          renderer.q--;
+          perf.quality = renderer.q;
+          console.log('Neon Drive: quality ->', renderer.q);
+        }
+        win = winDrops = winRender = 0;
+      }
+    }
+    // background generation of upcoming buildings, within the frame budget
+    world.work(Math.max(1, 9 - renderMs));
+    frames++;
+    if (now - fpsT > 1000) {
+      fps = (frames * 1000) / (now - fpsT);
+      frames = 0;
+      fpsT = now;
+      if (debug) stats.textContent = `${fps.toFixed(0)} fps · render ${renderMs.toFixed(1)}ms · worst ${worst.toFixed(1)}ms · jobs ${world.jobs.jobs.length}`;
+      worst = 0;
+    }
+  }
+
+  // --- UI
+  let hudTimer = 0;
+  function showHud() {
+    document.body.classList.remove('idle');
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => document.body.classList.add('idle'), 2500);
+  }
+  function toggleFullscreen() {
+    const el = document.documentElement;
+    try {
+      let p;
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (fn) p = fn.call(el);
+      } else {
+        const fn = document.exitFullscreen || document.webkitExitFullscreen;
+        if (fn) p = fn.call(document);
+      }
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* fullscreen not allowed here */ }
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+    else if (e.key === ' ') { paused = !paused; e.preventDefault(); }
+    else if (e.key === 'h' || e.key === 'H') document.body.classList.toggle('nohud');
+    else if (e.key === 'd' || e.key === 'D') stats.classList.toggle('show');
+    showHud();
+  });
+  window.addEventListener('mousemove', showHud);
+  screen.addEventListener('dblclick', toggleFullscreen);
+  window.addEventListener('resize', resize);
+
+  function boot() {
+    const t0 = performance.now();
+    world = new ND.World(seed);
+    renderer = new ND.Renderer(world, { quality: params.get('q') != null ? +params.get('q') : undefined });
+    ND.world = world;
+    ND.renderer = renderer;
+    resize();
+    renderer.render();
+    present();
+    document.body.classList.add('ready');
+    if (debug) stats.classList.add('show');
+    console.log(`Neon Drive ready in ${(performance.now() - t0).toFixed(0)} ms`);
+    showHud();
+    requestAnimationFrame(frame);
+  }
+
+  // Let the loading text paint before the (synchronous) world build.
+  requestAnimationFrame(() => setTimeout(boot, 30));
+})();
+
+</script>
+</body>
+</html>

@@ -110,11 +110,17 @@
   }
   function toggleFullscreen() {
     const el = document.documentElement;
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-      (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
-    } else {
-      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    }
+    try {
+      let p;
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (fn) p = fn.call(el);
+      } else {
+        const fn = document.exitFullscreen || document.webkitExitFullscreen;
+        if (fn) p = fn.call(document);
+      }
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* fullscreen not allowed here */ }
   }
   window.addEventListener('keydown', (e) => {
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();

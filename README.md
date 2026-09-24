@@ -11,7 +11,9 @@ screen-captured as the visual for long mixtapes.
 ## Run it
 
 Open `index.html` in a browser. Double-clicking the file works (no server needed),
-or you can serve the folder with any static server.
+or you can serve the folder with any static server. `dist/neon-drive.html` is the
+same thing bundled into one file you can copy anywhere (rebuild it with
+`node tools/build.js`).
 
 | Key | Action |
 | --- | --- |
