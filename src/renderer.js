@@ -651,6 +651,20 @@
         cx.globalAlpha = 1;
         cx.globalCompositeOperation = 'source-over';
       }
+      // driver (behind the door), then the door top again so the torso stays inside
+      const Dv = h.driver;
+      cx.drawImage(Dv.c, Dv.x, Dv.y + h.bob + (h.nod || 0));
+      cx.drawImage(h.body.c, 104, 26, 108, 2, 104, 26 + h.bob, 108, 2);
+      // arm out of the window with the cigarette
+      const A = h.arm;
+      const af = A.frames[ND.clamp(Math.round(((h.armTh - A.th0) / (A.th1 - A.th0)) * (A.N - 1)), 0, A.N - 1)];
+      cx.drawImage(af.c, A.ox, A.oy + h.bob);
+      const ember = 0.6 + 0.4 * ND.noise(R.t * 9, 3.3, 17);
+      const tx = Math.round(af.tip[0]), ty = Math.round(af.tip[1]) + h.bob;
+      cx.fillStyle = `rgb(255,${(150 + ember * 100) | 0},${(60 + ember * 80) | 0})`;
+      cx.fillRect(tx, ty, 1, 1);
+      cx.fillStyle = `rgb(255,${(70 + ember * 60) | 0},30)`;
+      cx.fillRect(tx + 1, ty, 1, 1);
       const WF = h.wheels;
       const fr = Math.floor(((h.angle % WF.period) + WF.period) % WF.period / WF.period * WF.frames.length) % WF.frames.length;
       for (const [wx, wy] of ND.HERO.WHEELS) cx.drawImage(WF.frames[fr], wx - WF.R, wy - WF.R);
@@ -680,6 +694,16 @@
       g.fillRect(x + 293, Y.CAR + 3, 6, 40);
       g.fillStyle = 'rgba(255,150,30,0.35)';
       g.fillRect(x + 1, Y.CAR + 6, 6, 26);
+      // cigarette ember glow + smoke trail streaming back in the wind
+      const A2 = h.arm;
+      const af2 = A2.frames[ND.clamp(Math.round(((h.armTh - A2.th0) / (A2.th1 - A2.th0)) * (A2.N - 1)), 0, A2.N - 1)];
+      const em = 0.6 + 0.4 * ND.noise(R.t * 9, 3.3, 17);
+      g.fillStyle = `rgba(255,120,40,${0.9 * em})`;
+      g.fillRect(Math.round(x + af2.tip[0]) - 1, Math.round(y + af2.tip[1]) + h.bob - 1, 4, 3);
+      g.fillStyle = `rgba(255,200,120,${0.9 * em})`;
+      g.fillRect(Math.round(x + af2.tip[0]), Math.round(y + af2.tip[1]) + h.bob, 1, 1);
+      // smoke is drawn after bloom (see post) so the glow doesn't wash it out
+      this.smokeAt = [x, y];
       // raindrops bursting on the roof, hood and rear deck
       const hits = w.rain.carHits;
       if (hits.length) {
@@ -865,6 +889,21 @@
       c.drawImage(v, 0, H - vt, W, vt, 0, H - vt, W, vt);
       c.drawImage(v, 0, vt, vs, H - 2 * vt, 0, vt, vs, H - 2 * vt);
       c.drawImage(v, W - vs, vt, vs, H - 2 * vt, W - vs, vt, vs, H - 2 * vt);
+      // cigarette smoke and sparks (after bloom: smoke isn't a light source)
+      const h = this.world.hero, so = this.smokeAt;
+      if (so && h.smoke.length) {
+        for (const p of h.smoke) {
+          const k = p.age / p.life;
+          const px = Math.round(so[0] + p.x), py = Math.round(so[1] + p.y);
+          if (p.spark) {
+            c.fillStyle = `rgba(255,${150 + (1 - k) * 90 | 0},60,${1 - k})`;
+            c.fillRect(px, py, 1, 1);
+            continue;
+          }
+          c.fillStyle = `rgba(146,136,182,${0.78 * Math.pow(1 - k, 0.75)})`;
+          c.fillRect(px, py, k > 0.45 ? 2 : 1, k > 0.7 ? 2 : 1);
+        }
+      }
       // lightning washes the whole street for a moment
       const fl = R.weather.flash;
       if (fl > 0.01) {

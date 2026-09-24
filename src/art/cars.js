@@ -49,40 +49,116 @@
     return pts;
   }
 
-  // Driver pixel map (facing left). Origin placed at (145, 2).
+  // Driver: solid profile facing left (forehead, wraparound shades, nose,
+  // lips, chin, jaw, ear, neck) with a blond mullet, pastel jacket.
+  // Origin placed at car-local (144, 5); rows past the beltline are clipped.
   const DRIVER = [
-    '.....kkkkk.......',
-    '....khHHhhdk.....',
-    '...khHHhhhhdk....',
-    '..khhhhhhhhddk...',
-    '..kShhhhhhhdddk..',
-    '..SSshhhhhhdddk..',
-    '.SSSSshhhhddddk..',
-    '.GGGGGGszhdddddk.',
-    '..GGgGzszzhddddk.',
-    '.SSSssszzzhdddk..',
-    'SSSssszz..hddddk.',
-    '.SSsssz....dddk..',
-    '..ssszz....ddddk.',
-    '...zzz.....dddk..',
-    '....sz.....dddk..',
-    '....sz....cbdk...',
-    '...cwbbbbbbbbbB..',
-    '..cwwbbbwbbbbbBB.',
-    '.cwbbbbwbbbbbbBB.',
-    '.cbbbbwbbbbbbbBB.',
-    '.cbbbbwbbbbbbbBB.',
-    '.cbbbwbbbbbbbbBB.',
-    '.bbbbwbbbbbbbbBB.',
-    '.bbbbwbbbbbbbbBB.',
-    '.bbbbbbbbbbbbbBB.',
+    '......kkkkkk......',
+    '....kkhHHHHhkk....',
+    '...khHHHhhhhhhk...',
+    '..khHhhhhhhhhhdk..',
+    '..khhhhhhhhhhhddk.',
+    '.khhhhhhhhhhhhdddk',
+    '.kShhhhshhhhhhdddk',
+    '..SSSssssshhhhdddk',
+    '.GGGGGGGGGehhhdddk',
+    '..GgGGssszeehhdddk',
+    'SSSSssssszeehhdddk',
+    '..SSsssssszzhhdddk',
+    '.SSSssssszzzhhdddk',
+    '..SSsssszzzzhhddk.',
+    '..Ssssszzzzzhhdddk',
+    '....zzzzzzzzhhdddk',
+    '......nnnnnnhhddk.',
+    '......nnnnnhhdddk.',
+    '.....cwnnnnbhddk..',
+    '...cwbbbbbbbbbbBB.',
+    '..cwbbbwbbbbbbbbBB',
   ];
   const DRIVER_PAL = {
     H: rgb('#fff2b0'), h: rgb('#f2c662'), d: rgb('#c48c36'), k: rgb('#7a4e22'),
-    S: rgb('#f8c6a6'), s: rgb('#e49c7c'), z: rgb('#a8624e'),
+    S: rgb('#f8c6a6'), s: rgb('#e49c7c'), z: rgb('#b06a54'), e: rgb('#c4705a'), n: rgb('#a8624e'),
     G: rgb('#0c0a14'), g: rgb('#ff7ad8'),
     c: rgb('#e4f2ff'), w: rgb('#ffffff'), b: rgb('#96c2f0'), B: rgb('#5c80bc'),
   };
+  const DRIVER_O = [144, 5];
+
+  function genDriver() {
+    const w = DRIVER[0].length, h = DRIVER.length;
+    const pb = new ND.PB(w, h);
+    DRIVER.forEach((row, y) => {
+      if (row.length !== w) throw new Error('driver row ' + y + ' has length ' + row.length);
+      [...row].forEach((ch, x) => {
+        if (ch === '.') return;
+        const c = DRIVER_PAL[ch];
+        pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+      });
+    });
+    return { c: pb.canvas(), x: DRIVER_O[0], y: DRIVER_O[1] };
+  }
+
+  // The driver's arm out of the window: sleeve resting on the door sill,
+  // forearm hanging outside, cigarette between the fingers. Frames cover
+  // the forearm's swing; the ember is drawn live.
+  function genDriverArm() {
+    const OX = 128, OY = 19, AW = 30, AH = 32, N = 11;
+    const th0 = -0.08, th1 = 0.34;
+    const skin = rgb('#e8a282'), skinL = rgb('#f8c6a6'), skinD = rgb('#a8604c');
+    const sleeve = rgb('#96c2f0'), sleeveL = rgb('#d4ecff'), sleeveD = rgb('#5c80bc');
+    const frames = [];
+    for (let f = 0; f < N; f++) {
+      const th = th0 + (f / (N - 1)) * (th1 - th0);
+      const ux = -Math.sin(th), uy = Math.cos(th);
+      const E = [146.2 - OX, 28.4 - OY];
+      const Wr = [E[0] + ux * 10.5, E[1] + uy * 10.5];
+      const Hd = [Wr[0] + ux * 2.3, Wr[1] + uy * 2.3];
+      // forearm + hand silhouette, shaded by exposure (lit from the front/left)
+      const arm = new ND.PB(AW, AH);
+      const steps = 24;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        arm.disc(E[0] + (Wr[0] - E[0]) * t, E[1] + (Wr[1] - E[1]) * t, 2.05 - t * 0.5, 1);
+      }
+      arm.disc(Hd[0], Hd[1], 1.95, 1);
+      arm.disc(Hd[0] - 0.8, Hd[1] + 1.1, 1.1, 1); // curled fingers
+      const pb = new ND.PB(AW, AH);
+      for (let y = 0; y < AH; y++)
+        for (let x = 0; x < AW; x++) {
+          if (!arm.get(x, y)) continue;
+          const lf = arm.get(x - 1, y), rt = arm.get(x + 1, y);
+          const c = !lf ? skinL : !rt ? skinD : skin;
+          pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+        }
+      // watch band across the wrist
+      const px = uy, py = -ux;
+      for (let k = -1.6; k <= 1.6; k += 0.5) {
+        const wx = Wr[0] - ux * 0.8 + px * k, wy = Wr[1] - uy * 0.8 + py * k;
+        pb.set(Math.round(wx), Math.round(wy), ND.pack(...(k < 0 ? [255, 214, 90] : [184, 138, 32])));
+      }
+      // rolled sleeve resting on the sill (drawn over the elbow)
+      const sc = [149 - OX, 25.6 - OY];
+      for (let y = -3; y <= 3; y++)
+        for (let x = -6; x <= 6; x++) {
+          const d = (x * x) / 27 + (y * y) / 8.5;
+          if (d > 1) continue;
+          let c = x < -2 ? sleeveL : x > 2 ? sleeveD : sleeve;
+          if (y >= 2) c = ND.mix(c, sleeveD, 0.5);
+          if ((x + 6) % 4 === 1 && y < 2) c = [255, 255, 255];
+          pb.set(Math.round(sc[0] + x), Math.round(sc[1] + y), ND.pack(c[0], c[1], c[2]));
+        }
+      // cuff
+      for (let x = -3; x <= 1; x++) pb.set(Math.round(sc[0] + x - 1), Math.round(sc[1] + 2), ND.pack(228, 242, 255));
+      // cigarette: filter at the fingers, paper pointing forward and down
+      const ca = 0.42 - th * 0.35;
+      const dx = -Math.cos(ca), dy = Math.sin(ca);
+      const C0 = [Hd[0] - 1.3, Hd[1] + 0.9];
+      pb.set(Math.round(C0[0]), Math.round(C0[1]), ND.pack(216, 150, 80));
+      for (let k = 1; k <= 4; k++) pb.set(Math.round(C0[0] + dx * k), Math.round(C0[1] + dy * k), ND.pack(246, 242, 232));
+      const tip = [OX + C0[0] + dx * 5, OY + C0[1] + dy * 5];
+      frames.push({ c: pb.canvas(), tip, th });
+    }
+    return { frames, ox: OX, oy: OY, th0, th1, N };
+  }
 
   function genHeroCar() {
     const pb = new ND.PB(HW, HH), gl = new ND.PB(HW, HH);
@@ -214,28 +290,6 @@
       if (y < 9 && (x < 164 || x > 168)) continue;
       pb.set(x, y, P(x === 162 ? rgb('#3a3450') : rgb('#1a1626')));
     }
-
-    // ---- driver
-    const ox = 145, oy = 2;
-    DRIVER.forEach((row, yy) => {
-      for (let xx = 0; xx < row.length; xx++) {
-        const ch = row[xx];
-        if (ch === '.') continue;
-        const c = DRIVER_PAL[ch];
-        if (oy + yy >= 26) continue;
-        pb.set(ox + xx, oy + yy, P(c));
-      }
-    });
-    // arm resting on the door, hand hanging outside
-    const skin = rgb('#eaa888'), skinD = rgb('#b87060');
-    pb.thick(156, 19, 145, 25, 2.1, P(rgb('#96c2f0')));
-    pb.thick(157, 19, 147, 24, 0.6, P(rgb('#ffffff')));
-    pb.thick(145, 25, 140, 26, 1.6, P(skin));
-    pb.thick(140, 27, 137, 32, 1.4, P(skin));
-    pb.set(138, 28, P(rgb('#ffd24a'))); pb.set(139, 28, P(rgb('#c89020'))); // watch
-    pb.disc(136.5, 33, 1.6, P(skin));
-    pb.set(135, 34, P(skinD)); pb.set(137, 35, P(skinD));
-    pb.set(141, 25, P(rgb('#ffe0c8')));
 
     // ---- side strakes
     for (let i = 0; i < 7; i++) {
@@ -482,6 +536,8 @@
   }
 
   ND.genHeroCar = genHeroCar;
+  ND.genDriver = genDriver;
+  ND.genDriverArm = genDriverArm;
   ND.genWheelFrames = genWheelFrames;
   ND.genTraffic = genTraffic;
   ND.HERO = { W: HW, H: HH, WHEELS, WHEEL_R, topY };

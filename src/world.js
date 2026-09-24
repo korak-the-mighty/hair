@@ -93,11 +93,17 @@
       this.hero = {
         body: ND.genHeroCar(),
         wheels: ND.genWheelFrames(),
+        driver: ND.genDriver(),
+        arm: ND.genDriverArm(),
         x: 206,
         y: Y.CAR - ND.HERO.H + 1,
         angle: 0,
         bob: 0,
+        nod: 0,
+        armTh: 0.12,
+        smoke: [],
       };
+      this.fxr = ND.rng(seed + 333);
       this.nextWalker = 0;
       this.nextCar = 0;
       this.initialPopulation();
@@ -389,6 +395,31 @@
       hero.dx = Math.round(Math.sin(t * 0.13) * 5 + Math.sin(t * 0.041 + 1) * 7);
       const bump = ND.hash(Math.floor(this.tick / 97), 5) < 0.35 && this.tick % 97 < 6;
       hero.bob = bump ? 1 : 0;
+
+      // the driver's arm hangs out of the window and sways with the ride
+      const sinceBump = this.tick % 97;
+      const kick = ND.hash(Math.floor(this.tick / 97), 5) < 0.35 ? Math.exp(-sinceBump / 14) * Math.sin(sinceBump * 0.35) * 0.09 : 0;
+      hero.armTh = 0.12 + 0.07 * Math.sin(t * 1.7) + 0.03 * Math.sin(t * 4.1 + 1) + kick;
+      // cigarette smoke, whisked back by the wind (car-local coordinates)
+      const A = hero.arm, fr = A.frames[ND.clamp(Math.round(((hero.armTh - A.th0) / (A.th1 - A.th0)) * (A.N - 1)), 0, A.N - 1)];
+      const fx = this.fxr, rain = this.weather.v.rain;
+      if (!init) {
+        hero.smoke.push({ x: fr.tip[0], y: fr.tip[1] - 0.4, vx: 0.35 + fx() * 0.4, vy: -0.42 - fx() * 0.3, age: 0, life: (50 + fx() * 34) * (1 - rain * 0.5), ph: fx() * 6.28 });
+      }
+      if (!init && fx() < 1 / 420) {
+        const n = 2 + Math.floor(fx() * 3);
+        for (let i = 0; i < n; i++) hero.smoke.push({ x: fr.tip[0], y: fr.tip[1], vx: 1.8 + fx() * 1.6, vy: (fx() - 0.6) * 0.5, age: 0, life: 9 + fx() * 12, ph: 0, spark: true });
+      }
+      for (const p of hero.smoke) {
+        p.x += p.vx;
+        p.y += p.vy + Math.sin(p.age * 0.22 + p.ph) * 0.12;
+        if (!p.spark) {
+          p.vx = Math.min(1.3, p.vx + 0.02); // the slipstream catches it
+          p.vy *= 0.985;
+        }
+        p.age++;
+      }
+      hero.smoke = hero.smoke.filter((p) => p.age < p.life);
     }
 
     // run a slice of queued generation work

@@ -2269,40 +2269,116 @@
     return pts;
   }
 
-  // Driver pixel map (facing left). Origin placed at (145, 2).
+  // Driver: solid profile facing left (forehead, wraparound shades, nose,
+  // lips, chin, jaw, ear, neck) with a blond mullet, pastel jacket.
+  // Origin placed at car-local (144, 5); rows past the beltline are clipped.
   const DRIVER = [
-    '.....kkkkk.......',
-    '....khHHhhdk.....',
-    '...khHHhhhhdk....',
-    '..khhhhhhhhddk...',
-    '..kShhhhhhhdddk..',
-    '..SSshhhhhhdddk..',
-    '.SSSSshhhhddddk..',
-    '.GGGGGGszhdddddk.',
-    '..GGgGzszzhddddk.',
-    '.SSSssszzzhdddk..',
-    'SSSssszz..hddddk.',
-    '.SSsssz....dddk..',
-    '..ssszz....ddddk.',
-    '...zzz.....dddk..',
-    '....sz.....dddk..',
-    '....sz....cbdk...',
-    '...cwbbbbbbbbbB..',
-    '..cwwbbbwbbbbbBB.',
-    '.cwbbbbwbbbbbbBB.',
-    '.cbbbbwbbbbbbbBB.',
-    '.cbbbbwbbbbbbbBB.',
-    '.cbbbwbbbbbbbbBB.',
-    '.bbbbwbbbbbbbbBB.',
-    '.bbbbwbbbbbbbbBB.',
-    '.bbbbbbbbbbbbbBB.',
+    '......kkkkkk......',
+    '....kkhHHHHhkk....',
+    '...khHHHhhhhhhk...',
+    '..khHhhhhhhhhhdk..',
+    '..khhhhhhhhhhhddk.',
+    '.khhhhhhhhhhhhdddk',
+    '.kShhhhshhhhhhdddk',
+    '..SSSssssshhhhdddk',
+    '.GGGGGGGGGehhhdddk',
+    '..GgGGssszeehhdddk',
+    'SSSSssssszeehhdddk',
+    '..SSsssssszzhhdddk',
+    '.SSSssssszzzhhdddk',
+    '..SSsssszzzzhhddk.',
+    '..Ssssszzzzzhhdddk',
+    '....zzzzzzzzhhdddk',
+    '......nnnnnnhhddk.',
+    '......nnnnnhhdddk.',
+    '.....cwnnnnbhddk..',
+    '...cwbbbbbbbbbbBB.',
+    '..cwbbbwbbbbbbbbBB',
   ];
   const DRIVER_PAL = {
     H: rgb('#fff2b0'), h: rgb('#f2c662'), d: rgb('#c48c36'), k: rgb('#7a4e22'),
-    S: rgb('#f8c6a6'), s: rgb('#e49c7c'), z: rgb('#a8624e'),
+    S: rgb('#f8c6a6'), s: rgb('#e49c7c'), z: rgb('#b06a54'), e: rgb('#c4705a'), n: rgb('#a8624e'),
     G: rgb('#0c0a14'), g: rgb('#ff7ad8'),
     c: rgb('#e4f2ff'), w: rgb('#ffffff'), b: rgb('#96c2f0'), B: rgb('#5c80bc'),
   };
+  const DRIVER_O = [144, 5];
+
+  function genDriver() {
+    const w = DRIVER[0].length, h = DRIVER.length;
+    const pb = new ND.PB(w, h);
+    DRIVER.forEach((row, y) => {
+      if (row.length !== w) throw new Error('driver row ' + y + ' has length ' + row.length);
+      [...row].forEach((ch, x) => {
+        if (ch === '.') return;
+        const c = DRIVER_PAL[ch];
+        pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+      });
+    });
+    return { c: pb.canvas(), x: DRIVER_O[0], y: DRIVER_O[1] };
+  }
+
+  // The driver's arm out of the window: sleeve resting on the door sill,
+  // forearm hanging outside, cigarette between the fingers. Frames cover
+  // the forearm's swing; the ember is drawn live.
+  function genDriverArm() {
+    const OX = 128, OY = 19, AW = 30, AH = 32, N = 11;
+    const th0 = -0.08, th1 = 0.34;
+    const skin = rgb('#e8a282'), skinL = rgb('#f8c6a6'), skinD = rgb('#a8604c');
+    const sleeve = rgb('#96c2f0'), sleeveL = rgb('#d4ecff'), sleeveD = rgb('#5c80bc');
+    const frames = [];
+    for (let f = 0; f < N; f++) {
+      const th = th0 + (f / (N - 1)) * (th1 - th0);
+      const ux = -Math.sin(th), uy = Math.cos(th);
+      const E = [146.2 - OX, 28.4 - OY];
+      const Wr = [E[0] + ux * 10.5, E[1] + uy * 10.5];
+      const Hd = [Wr[0] + ux * 2.3, Wr[1] + uy * 2.3];
+      // forearm + hand silhouette, shaded by exposure (lit from the front/left)
+      const arm = new ND.PB(AW, AH);
+      const steps = 24;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        arm.disc(E[0] + (Wr[0] - E[0]) * t, E[1] + (Wr[1] - E[1]) * t, 2.05 - t * 0.5, 1);
+      }
+      arm.disc(Hd[0], Hd[1], 1.95, 1);
+      arm.disc(Hd[0] - 0.8, Hd[1] + 1.1, 1.1, 1); // curled fingers
+      const pb = new ND.PB(AW, AH);
+      for (let y = 0; y < AH; y++)
+        for (let x = 0; x < AW; x++) {
+          if (!arm.get(x, y)) continue;
+          const lf = arm.get(x - 1, y), rt = arm.get(x + 1, y);
+          const c = !lf ? skinL : !rt ? skinD : skin;
+          pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+        }
+      // watch band across the wrist
+      const px = uy, py = -ux;
+      for (let k = -1.6; k <= 1.6; k += 0.5) {
+        const wx = Wr[0] - ux * 0.8 + px * k, wy = Wr[1] - uy * 0.8 + py * k;
+        pb.set(Math.round(wx), Math.round(wy), ND.pack(...(k < 0 ? [255, 214, 90] : [184, 138, 32])));
+      }
+      // rolled sleeve resting on the sill (drawn over the elbow)
+      const sc = [149 - OX, 25.6 - OY];
+      for (let y = -3; y <= 3; y++)
+        for (let x = -6; x <= 6; x++) {
+          const d = (x * x) / 27 + (y * y) / 8.5;
+          if (d > 1) continue;
+          let c = x < -2 ? sleeveL : x > 2 ? sleeveD : sleeve;
+          if (y >= 2) c = ND.mix(c, sleeveD, 0.5);
+          if ((x + 6) % 4 === 1 && y < 2) c = [255, 255, 255];
+          pb.set(Math.round(sc[0] + x), Math.round(sc[1] + y), ND.pack(c[0], c[1], c[2]));
+        }
+      // cuff
+      for (let x = -3; x <= 1; x++) pb.set(Math.round(sc[0] + x - 1), Math.round(sc[1] + 2), ND.pack(228, 242, 255));
+      // cigarette: filter at the fingers, paper pointing forward and down
+      const ca = 0.42 - th * 0.35;
+      const dx = -Math.cos(ca), dy = Math.sin(ca);
+      const C0 = [Hd[0] - 1.3, Hd[1] + 0.9];
+      pb.set(Math.round(C0[0]), Math.round(C0[1]), ND.pack(216, 150, 80));
+      for (let k = 1; k <= 4; k++) pb.set(Math.round(C0[0] + dx * k), Math.round(C0[1] + dy * k), ND.pack(246, 242, 232));
+      const tip = [OX + C0[0] + dx * 5, OY + C0[1] + dy * 5];
+      frames.push({ c: pb.canvas(), tip, th });
+    }
+    return { frames, ox: OX, oy: OY, th0, th1, N };
+  }
 
   function genHeroCar() {
     const pb = new ND.PB(HW, HH), gl = new ND.PB(HW, HH);
@@ -2434,28 +2510,6 @@
       if (y < 9 && (x < 164 || x > 168)) continue;
       pb.set(x, y, P(x === 162 ? rgb('#3a3450') : rgb('#1a1626')));
     }
-
-    // ---- driver
-    const ox = 145, oy = 2;
-    DRIVER.forEach((row, yy) => {
-      for (let xx = 0; xx < row.length; xx++) {
-        const ch = row[xx];
-        if (ch === '.') continue;
-        const c = DRIVER_PAL[ch];
-        if (oy + yy >= 26) continue;
-        pb.set(ox + xx, oy + yy, P(c));
-      }
-    });
-    // arm resting on the door, hand hanging outside
-    const skin = rgb('#eaa888'), skinD = rgb('#b87060');
-    pb.thick(156, 19, 145, 25, 2.1, P(rgb('#96c2f0')));
-    pb.thick(157, 19, 147, 24, 0.6, P(rgb('#ffffff')));
-    pb.thick(145, 25, 140, 26, 1.6, P(skin));
-    pb.thick(140, 27, 137, 32, 1.4, P(skin));
-    pb.set(138, 28, P(rgb('#ffd24a'))); pb.set(139, 28, P(rgb('#c89020'))); // watch
-    pb.disc(136.5, 33, 1.6, P(skin));
-    pb.set(135, 34, P(skinD)); pb.set(137, 35, P(skinD));
-    pb.set(141, 25, P(rgb('#ffe0c8')));
 
     // ---- side strakes
     for (let i = 0; i < 7; i++) {
@@ -2702,6 +2756,8 @@
   }
 
   ND.genHeroCar = genHeroCar;
+  ND.genDriver = genDriver;
+  ND.genDriverArm = genDriverArm;
   ND.genWheelFrames = genWheelFrames;
   ND.genTraffic = genTraffic;
   ND.HERO = { W: HW, H: HH, WHEELS, WHEEL_R, topY };
@@ -3530,11 +3586,17 @@
       this.hero = {
         body: ND.genHeroCar(),
         wheels: ND.genWheelFrames(),
+        driver: ND.genDriver(),
+        arm: ND.genDriverArm(),
         x: 206,
         y: Y.CAR - ND.HERO.H + 1,
         angle: 0,
         bob: 0,
+        nod: 0,
+        armTh: 0.12,
+        smoke: [],
       };
+      this.fxr = ND.rng(seed + 333);
       this.nextWalker = 0;
       this.nextCar = 0;
       this.initialPopulation();
@@ -3826,6 +3888,31 @@
       hero.dx = Math.round(Math.sin(t * 0.13) * 5 + Math.sin(t * 0.041 + 1) * 7);
       const bump = ND.hash(Math.floor(this.tick / 97), 5) < 0.35 && this.tick % 97 < 6;
       hero.bob = bump ? 1 : 0;
+
+      // the driver's arm hangs out of the window and sways with the ride
+      const sinceBump = this.tick % 97;
+      const kick = ND.hash(Math.floor(this.tick / 97), 5) < 0.35 ? Math.exp(-sinceBump / 14) * Math.sin(sinceBump * 0.35) * 0.09 : 0;
+      hero.armTh = 0.12 + 0.07 * Math.sin(t * 1.7) + 0.03 * Math.sin(t * 4.1 + 1) + kick;
+      // cigarette smoke, whisked back by the wind (car-local coordinates)
+      const A = hero.arm, fr = A.frames[ND.clamp(Math.round(((hero.armTh - A.th0) / (A.th1 - A.th0)) * (A.N - 1)), 0, A.N - 1)];
+      const fx = this.fxr, rain = this.weather.v.rain;
+      if (!init) {
+        hero.smoke.push({ x: fr.tip[0], y: fr.tip[1] - 0.4, vx: 0.35 + fx() * 0.4, vy: -0.42 - fx() * 0.3, age: 0, life: (50 + fx() * 34) * (1 - rain * 0.5), ph: fx() * 6.28 });
+      }
+      if (!init && fx() < 1 / 420) {
+        const n = 2 + Math.floor(fx() * 3);
+        for (let i = 0; i < n; i++) hero.smoke.push({ x: fr.tip[0], y: fr.tip[1], vx: 1.8 + fx() * 1.6, vy: (fx() - 0.6) * 0.5, age: 0, life: 9 + fx() * 12, ph: 0, spark: true });
+      }
+      for (const p of hero.smoke) {
+        p.x += p.vx;
+        p.y += p.vy + Math.sin(p.age * 0.22 + p.ph) * 0.12;
+        if (!p.spark) {
+          p.vx = Math.min(1.3, p.vx + 0.02); // the slipstream catches it
+          p.vy *= 0.985;
+        }
+        p.age++;
+      }
+      hero.smoke = hero.smoke.filter((p) => p.age < p.life);
     }
 
     // run a slice of queued generation work
@@ -4490,6 +4577,20 @@
         cx.globalAlpha = 1;
         cx.globalCompositeOperation = 'source-over';
       }
+      // driver (behind the door), then the door top again so the torso stays inside
+      const Dv = h.driver;
+      cx.drawImage(Dv.c, Dv.x, Dv.y + h.bob + (h.nod || 0));
+      cx.drawImage(h.body.c, 104, 26, 108, 2, 104, 26 + h.bob, 108, 2);
+      // arm out of the window with the cigarette
+      const A = h.arm;
+      const af = A.frames[ND.clamp(Math.round(((h.armTh - A.th0) / (A.th1 - A.th0)) * (A.N - 1)), 0, A.N - 1)];
+      cx.drawImage(af.c, A.ox, A.oy + h.bob);
+      const ember = 0.6 + 0.4 * ND.noise(R.t * 9, 3.3, 17);
+      const tx = Math.round(af.tip[0]), ty = Math.round(af.tip[1]) + h.bob;
+      cx.fillStyle = `rgb(255,${(150 + ember * 100) | 0},${(60 + ember * 80) | 0})`;
+      cx.fillRect(tx, ty, 1, 1);
+      cx.fillStyle = `rgb(255,${(70 + ember * 60) | 0},30)`;
+      cx.fillRect(tx + 1, ty, 1, 1);
       const WF = h.wheels;
       const fr = Math.floor(((h.angle % WF.period) + WF.period) % WF.period / WF.period * WF.frames.length) % WF.frames.length;
       for (const [wx, wy] of ND.HERO.WHEELS) cx.drawImage(WF.frames[fr], wx - WF.R, wy - WF.R);
@@ -4519,6 +4620,16 @@
       g.fillRect(x + 293, Y.CAR + 3, 6, 40);
       g.fillStyle = 'rgba(255,150,30,0.35)';
       g.fillRect(x + 1, Y.CAR + 6, 6, 26);
+      // cigarette ember glow + smoke trail streaming back in the wind
+      const A2 = h.arm;
+      const af2 = A2.frames[ND.clamp(Math.round(((h.armTh - A2.th0) / (A2.th1 - A2.th0)) * (A2.N - 1)), 0, A2.N - 1)];
+      const em = 0.6 + 0.4 * ND.noise(R.t * 9, 3.3, 17);
+      g.fillStyle = `rgba(255,120,40,${0.9 * em})`;
+      g.fillRect(Math.round(x + af2.tip[0]) - 1, Math.round(y + af2.tip[1]) + h.bob - 1, 4, 3);
+      g.fillStyle = `rgba(255,200,120,${0.9 * em})`;
+      g.fillRect(Math.round(x + af2.tip[0]), Math.round(y + af2.tip[1]) + h.bob, 1, 1);
+      // smoke is drawn after bloom (see post) so the glow doesn't wash it out
+      this.smokeAt = [x, y];
       // raindrops bursting on the roof, hood and rear deck
       const hits = w.rain.carHits;
       if (hits.length) {
@@ -4704,6 +4815,21 @@
       c.drawImage(v, 0, H - vt, W, vt, 0, H - vt, W, vt);
       c.drawImage(v, 0, vt, vs, H - 2 * vt, 0, vt, vs, H - 2 * vt);
       c.drawImage(v, W - vs, vt, vs, H - 2 * vt, W - vs, vt, vs, H - 2 * vt);
+      // cigarette smoke and sparks (after bloom: smoke isn't a light source)
+      const h = this.world.hero, so = this.smokeAt;
+      if (so && h.smoke.length) {
+        for (const p of h.smoke) {
+          const k = p.age / p.life;
+          const px = Math.round(so[0] + p.x), py = Math.round(so[1] + p.y);
+          if (p.spark) {
+            c.fillStyle = `rgba(255,${150 + (1 - k) * 90 | 0},60,${1 - k})`;
+            c.fillRect(px, py, 1, 1);
+            continue;
+          }
+          c.fillStyle = `rgba(146,136,182,${0.78 * Math.pow(1 - k, 0.75)})`;
+          c.fillRect(px, py, k > 0.45 ? 2 : 1, k > 0.7 ? 2 : 1);
+        }
+      }
       // lightning washes the whole street for a moment
       const fl = R.weather.flash;
       if (fl > 0.01) {
