@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Neon Drive — Endless Night Run</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #f0d8ff; }
+    #screen { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+    body.idle, body.idle #screen { cursor: none; }
+    #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; letter-spacing: .3em; color: #ff5fd0; text-shadow: 0 0 8px #ff3cc8; }
+    body.ready #loading { display: none; }
+    #hud { position: fixed; left: 16px; bottom: 14px; padding: 6px 10px; background: rgba(10, 4, 24, .55); border: 1px solid rgba(255, 90, 210, .35); border-radius: 4px; transition: opacity .6s; pointer-events: none; }
+    body.idle #hud, body.nohud #hud { opacity: 0; }
+    #hud b { color: #6ae0ff; font-weight: normal; }
+    #stats { position: fixed; right: 12px; top: 10px; color: #9fffd0; background: rgba(0,0,0,.5); padding: 3px 7px; display: none; }
+    #stats.show { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="screen" width="640" height="360"></canvas>
+  <div id="loading">BUILDING THE CITY…</div>
+  <div id="hud"><b>F</b> fullscreen · <b>H</b> hide hints · <b>Space</b> pause · <b>D</b> stats</div>
+  <div id="stats"></div>
+
+  <script src="src/core.js"></script>
+  <script src="src/font.js"></script>
+  <script src="src/art/sky.js"></script>
+  <script src="src/art/skyline.js"></script>
+  <script src="src/art/buildings.js"></script>
+  <script src="src/art/palms.js"></script>
+  <script src="src/art/people.js"></script>
+  <script src="src/art/cars.js"></script>
+  <script src="src/art/props.js"></script>
+  <script src="src/world.js"></script>
+  <script src="src/renderer.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
