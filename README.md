@@ -1,6 +1,7 @@
 # Neon Drive — Endless Night Run
 
-![Neon Drive preview](docs/preview-pass1.png)
+![Neon Drive — clear night](docs/preview-pass2-clear.png)
+![Neon Drive — rain](docs/preview-pass2-rain.png)
 
 An endless, procedurally generated pixel-art night drive through a neon Art Deco
 beach strip. It's a white 80s supercar cruising past hotels, bars and motels under
@@ -18,12 +19,21 @@ same thing bundled into one file you can copy anywhere (rebuild it with
 | Key | Action |
 | --- | --- |
 | `F` / double-click | Fullscreen |
+| `W` | Skip to the next weather (clear → drizzle → rain → storm → mist) |
+| `L` | Cinematic 2.39:1 letterbox on/off |
+| `G` | Film grain on/off |
 | `H` | Hide the hint box |
 | `Space` | Pause |
 | `D` | FPS / frame-time stats |
 
-URL options: `?seed=1234` picks a different city, `?q=0|1|2` forces a quality
-level (default: automatic), and `?debug` shows stats on load.
+URL options:
+- `?seed=1234` picks a different city.
+- `?weather=clear|drizzle|rain|storm|mist` locks the weather. By default a
+  director cycles it every few minutes, and storms bring lightning.
+- `?q=0|1|2` forces a quality level. The default is automatic.
+- `?debug` shows stats on load.
+
+Options combine with `&`, for example `?weather=storm&seed=7`.
 
 ## Recording for YouTube
 
@@ -45,7 +55,12 @@ standard 16:9 size, so pixels stay perfectly square and crisp: 2× for 720p,
 - `src/world.js`: the endless world. Parallax sequences spawn to the left
   and retire off the right. Building art is generated in small time slices
   between frames, so nothing stalls the frame.
+- `src/weather.js`: the weather director, three depths of rain (lit by the
+  neon around it), splashes, ripple rings, lightning bolts and flashes, mist and overcast.
+- `src/fx.js`: the volumetric lamp cones, headlight beams, film grain, umbrellas,
+  and aircraft (planes, and a helicopter with a searchlight).
 - `src/renderer.js`: the colour and emissive buffers, ground-plane
-  ("Mode 7") sidewalk and road, streaky wet-asphalt reflections, bloom and vignette.
+  ("Mode 7") sidewalk and road, streaky wet-asphalt reflections, live neon
+  reflections on the car's paint, bloom, vignette and letterbox.
 - `src/main.js`: a fixed 60 Hz simulation with refresh-snapped timing, adaptive
   quality, and integer-scale presentation.

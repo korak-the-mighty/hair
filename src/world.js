@@ -71,7 +71,7 @@
 
   // ---------------------------------------------------------------------------
   class World {
-    constructor(seed = 1985) {
+    constructor(seed = 1985, opts = {}) {
       this.seed = seed;
       this.r = ND.rng(seed);
       this.tick = 0;
@@ -79,6 +79,9 @@
       this.jobs = new JobQueue();
       this.buildCache = new Map();
 
+      this.weather = new ND.Weather(seed + 99, opts.weather);
+      this.rain = new ND.Rain(seed + 5);
+      this.air = new ND.Aircraft(seed + 8);
       this.sky = new ND.Sky(seed + 1);
       this.makePools();
       this.makeSkyline();
@@ -294,7 +297,8 @@
       const v = dir * r.range(0.85, 1.1);
       const x = atX != null ? atX : -40;
       const P = this.D - (x - CX) / f;
-      this.walkers.push({ P, v, f, y, dir, sp: opts.sprite || r.pick(this.people), ph: r.int(0, 7), rate: Math.round(8 / Math.abs(v)) });
+      const umb = opts.sprite === this.heroWalker ? -1 : r() < 0.78 ? r.int(0, 6) : -1;
+      this.walkers.push({ P, v, f, y, dir, umb, sp: opts.sprite || r.pick(this.people), ph: r.int(0, 7), rate: Math.round(8 / Math.abs(v)) });
     }
 
     initialPopulation() {
@@ -332,6 +336,11 @@
         this.D += SPEED;
       }
       const D = this.D;
+      if (!init) {
+        this.weather.update();
+        this.rain.update(this.weather, D);
+        this.air.update(this.tick, this.weather);
+      }
       for (const l of this.skyLayers) l.update(D);
       this.buildings.update(D);
       this.curb.update(D);
@@ -344,7 +353,7 @@
         return x < W + 60 && x > -120;
       });
       if (!init && this.tick >= this.nextWalker) {
-        if (this.walkers.length < 10) this.spawnWalker(null);
+        if (this.walkers.length < 10 - this.weather.v.rain * 5) this.spawnWalker(null);
         this.nextWalker = this.tick + this.r.int(18, 90);
       }
 

@@ -126,10 +126,12 @@
       c.fillStyle = '#6a2a70';
       c.fillRect(0, SKY_H, W, ND.H - SKY_H);
 
-      // twinkling stars
+      // twinkling stars (hidden as the clouds close in)
+      const clear = R.weather ? ND.clamp(1 - R.weather.v.cloud * 0.95, 0, 1) : 1;
       for (const s of this.stars) {
         const tw = 0.5 + 0.5 * Math.sin(R.t * s.p + s.ph);
-        const a = ND.clamp(s.b * (0.35 + 0.65 * tw), 0, 1);
+        const a = ND.clamp(s.b * (0.35 + 0.65 * tw), 0, 1) * clear;
+        if (a < 0.03) continue;
         c.fillStyle = ND.css(s.tint, a);
         c.fillRect(s.x, s.y, 1, 1);
         if (tw > 0.93 && s.b > 0.7) {
@@ -141,10 +143,16 @@
 
       // moon and halo
       const mx = this.moonX, my = this.moonY;
+      const moonA = R.weather ? ND.clamp(1 - R.weather.v.cloud * 0.8, 0.15, 1) : 1;
+      c.globalAlpha = moonA;
       c.drawImage(this.halo, mx - 70, my - 70);
       c.drawImage(this.haloInner, mx - 30, my - 30);
+      c.globalAlpha = Math.min(1, moonA * 1.3);
       c.drawImage(this.moon.c, mx - this.moon.w / 2, my - this.moon.h / 2);
+      c.globalAlpha = 1;
+      g.globalAlpha = moonA;
       g.drawImage(this.moon.g, mx - this.moon.w / 2, my - this.moon.h / 2);
+      g.globalAlpha = 1;
 
       // clouds drift slowly to the right (we travel left)
       for (const cl of this.clouds) {

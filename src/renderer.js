@@ -132,6 +132,53 @@
       this.bloom = opts.bloom != null ? opts.bloom : 0.62;
       // quality: 2 = full, 1 = coarser ground/reflection rows, 0 = minimal
       this.q = opts.quality != null ? opts.quality : 2;
+
+      // cinematic effects
+      const HW = ND.HERO.W, HH = ND.HERO.H;
+      this.fx = {
+        rings: ND.genRings(),
+        cone: ND.genCone(64, 118, [255, 186, 110]),
+        beamAir: ND.genBeam(230, 16, [255, 244, 222]),
+        beamGround: ND.genGroundBeam(220, 22, [255, 236, 200]),
+        tBeamAir: ND.genBeam(130, 9, [255, 240, 210]),
+        tBeamGround: ND.genGroundBeam(130, 12, [255, 230, 190]),
+        redPool: ND.genPool(64, 14, [255, 40, 60], 0.7),
+        grain: ND.genGrain(4, world.seed + 12),
+        umbrellas: ND.genUmbrellas(),
+        mistBack: ND.genMist(world.seed + 21, 1024, 70, [150, 118, 200], 0.6),
+        mistFront: ND.genMist(world.seed + 22, 1024, 64, [132, 104, 186], 0.55),
+        overcast: ND.genOvercast(world.seed + 23),
+        skyFlash: (() => {
+          const pb = new ND.PB(W, 240);
+          for (let y = 0; y < 240; y++) for (let x = 0; x < W; x++) {
+            const a = Math.pow(1 - y / 240, 1.4);
+            const q = Math.floor(a * 14 + ND.bayer(x, y)) / 14;
+            pb.set(x, y, ND.pack(170 * q, 160 * q, 255 * q));
+          }
+          return pb.canvas();
+        })(),
+      };
+      this.rainC = ND.canvas(W, H);
+      this.rainX = ND.ctx(this.rainC);
+      this.lm = ND.canvas(W / 2, H / 2);
+      this.lmx = smoothCtx(this.lm);
+      this.envC = ND.canvas(HW, HH);
+      this.envX = ND.ctx(this.envC);
+      this.letter = 0;
+      this.letterOn = false;
+      this.grainOn = true;
+    }
+
+    // Tiles a horizontally-wrapping texture across the screen.
+    tiled(img, off, y, alpha) {
+      const c = this.c, T = img.width, h = img.height;
+      let u = off % T;
+      if (u < 0) u += T;
+      const w1 = Math.min(W, T - u);
+      c.globalAlpha = alpha;
+      c.drawImage(img, u, 0, w1, h, 0, y, w1, h);
+      if (w1 < W) c.drawImage(img, 0, 0, W - w1, h, w1, y, W - w1, h);
+      c.globalAlpha = 1;
     }
 
     makeHaze() {
@@ -164,7 +211,12 @@
     render() {
       const w = this.world, c = this.c, g = this.g;
       const t = w.tick / 60;
-      const R = { c, g, t, tick: w.tick, D: w.D, r: this };
+      const wx = w.weather;
+      const R = { c, g, t, tick: w.tick, D: w.D, r: this, weather: wx, boost: wx.boost };
+      this.wet.ripple = 1 + wx.v.rain * 0.8;
+      this.wet.mirror = 1 + wx.v.rain * 0.12;
+      this.wet.streak = 1 + wx.v.rain * 0.25 + wx.flash * 0.6;
+      this.buildLightMap(R);
       c.globalCompositeOperation = 'source-over';
       c.globalAlpha = 1;
       g.globalCompositeOperation = 'source-over';
@@ -173,15 +225,23 @@
       g.globalCompositeOperation = 'lighter';
 
       w.sky.draw(R);
+      this.drawStormSky(R);
+      w.air.draw(R, 'plane', wx);
       this.drawSkyline(R);
       this.drawBuildings(R);
       this.drawSidewalk(R);
       this.drawStreetLife(R);
       this.drawCurb(R);
+      w.air.draw(R, 'heli', wx);
+      this.drawMist(R, 'back');
       this.drawRoad(R);
+      this.drawSplashes(R);
       this.drawTraffic(R);
+      if (this.q >= 2) this.drawRain(R, [0, 1]);
       this.drawHero(R);
+      this.drawRain(R, this.q >= 2 ? [2] : [0, 1, 2]);
       this.drawForeground(R);
+      this.drawMist(R, 'front');
       this.post(R);
     }
 
@@ -196,9 +256,13 @@
           this.spr(it.spr, x, it.y);
           for (const a of it.anims) this.anim(R, a, x, it.y);
         }
-        if (d === 1) c.drawImage(this.haze, 0, 128);
+        if (d === 1) {
+          c.globalAlpha = Math.min(1, 0.7 + R.weather.v.fog * 0.8);
+          c.drawImage(this.haze, 0, 128);
+          c.globalAlpha = 1;
+        }
       });
-      c.globalAlpha = 0.7;
+      c.globalAlpha = Math.min(1, 0.55 + R.weather.v.fog * 1.1);
       c.drawImage(this.haze, 0, 150);
       c.globalAlpha = 1;
     }
@@ -237,7 +301,7 @@
           if (a.slow) off = Math.floor(t * 0.8 + a.seed) % 2 === 1;
           else {
             const k = Math.floor(t * 12);
-            const burst = ND.hash(Math.floor(t * 0.5), a.seed | 0) < a.rate * 4;
+            const burst = ND.hash(Math.floor(t * 0.5), a.seed | 0) < a.rate * 4 + (R.boost || 0) * 0.5;
             off = burst && ND.hash(k, (a.seed | 0) + 1) < 0.45;
           }
           if (off && a.off) {
@@ -304,7 +368,7 @@
       }
       // mirrored building bases
       for (let j = 1; j < SH; j++) {
-        c.globalAlpha = 0.32 * (1 - j / SH);
+        c.globalAlpha = Math.min(1, 0.32 * (1 + R.weather.v.rain * 0.6)) * (1 - j / SH);
         const sy = 25 - Math.floor(j * 1.3);
         if (sy < 0) break;
         c.drawImage(this.strip, 0, sy, W, 1, 0, y0 + j, W, 1);
@@ -365,6 +429,12 @@
         const img = (p.dir > 0 ? p.sp.walkL : p.sp.walkR)[fr];
         c.drawImage(img, x - FW / 2, p.y - FOOT);
         this.occlude(img, x - FW / 2, p.y - FOOT);
+        if (p.umb >= 0 && R.weather.v.rain > 0.26) {
+          const u = this.fx.umbrellas[p.umb];
+          const ux = x - 12 + (p.dir > 0 ? -3 : 3), uy = p.y - 60 + (fr % 4 === 1 ? 1 : 0);
+          c.drawImage(u, ux, uy);
+          this.occlude(u, ux, uy);
+        }
       }
     }
 
@@ -393,6 +463,19 @@
           this.occlude(img, cx, cy);
         }
       }
+      // volumetric cones under the lamps: the more mist and rain, the stronger
+      const vol = 0.1 + 0.6 * Math.max(R.weather.v.fog * 0.9, R.weather.v.rain);
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = Math.min(1, vol);
+      for (const it of curb.items) {
+        if (it.type !== 'lamp') continue;
+        const x = curb.x(it, R.D), L = it.lamp;
+        if (x < -60 || x > W + 60) continue;
+        const px = x - L.baseX + L.light[0], py = base - L.h + 2 + L.light[1];
+        c.drawImage(this.fx.cone, px - 32, py + 1);
+      }
+      c.globalAlpha = 1;
+      c.globalCompositeOperation = 'source-over';
       // the curb itself
       c.fillStyle = '#b388c0';
       c.fillRect(0, CURB, W, 1);
@@ -506,6 +589,22 @@
         const fr = Math.floor(car.wa) % 4;
         for (const [wx, wy] of S.wheels) tx.drawImage(S.wheelFrames[fr], wx - 10, wy - 10);
         const y = Y.FAR - S.ground;
+        // headlight beam ahead, brake-light glow behind (lighting the wet road)
+        const air = 0.05 + 0.45 * Math.max(R.weather.v.rain, R.weather.v.fog * 0.8);
+        const c0 = this.c;
+        c0.globalCompositeOperation = 'lighter';
+        c0.globalAlpha = 0.45;
+        c0.drawImage(this.fx.tBeamGround, x - 128, Y.FAR - 6);
+        c0.drawImage(this.fx.redPool, x + S.w - 34, Y.FAR - 5);
+        c0.globalAlpha = air;
+        c0.drawImage(this.fx.tBeamAir, x - 128, y + 24 - 9);
+        c0.globalAlpha = 1;
+        c0.globalCompositeOperation = 'source-over';
+        this.g.globalAlpha = 0.3;
+        this.g.drawImage(this.fx.tBeamGround, x - 128, Y.FAR - 6);
+        this.g.globalAlpha = air * 0.6;
+        this.g.drawImage(this.fx.tBeamAir, x - 128, y + 24 - 9);
+        this.g.globalAlpha = 1;
         this.reflect(this.trafC, x, Y.FAR, S.h, 0.3, R.t, 30);
         this.c.drawImage(this.trafC, x, y);
         this.occlude(this.trafC, x, y);
@@ -529,10 +628,48 @@
       const cx = this.carX, HW = ND.HERO.W, HH = ND.HERO.H;
       cx.clearRect(0, 0, HW, HH);
       cx.drawImage(h.body.c, 0, h.bob);
+      const x = h.x + (h.dx || 0), y = h.y;
+      // live neon reflections sliding along the paint (last frame's bloom, mirrored)
+      if (this.q >= 1) {
+        const ex = this.envX;
+        ex.globalCompositeOperation = 'source-over';
+        ex.clearRect(0, 0, HW, HH);
+        ex.imageSmoothingEnabled = true;
+        ex.save();
+        ex.translate(HW, 0);
+        ex.scale(-1, 1);
+        // upper flank mirrors the storefronts, lower flank the glowing wet road
+        ex.drawImage(this.bl[1], ND.clamp(x / 4, 0, W / 4 - HW / 4), 120 / 4, HW / 4, 90 / 4, 0, 0, HW, 44);
+        ex.drawImage(this.bl[1], ND.clamp(x / 4, 0, W / 4 - HW / 4), 282 / 4, HW / 4, 60 / 4, 0, 44, HW, HH - 44);
+        ex.restore();
+        ex.imageSmoothingEnabled = false;
+        ex.globalCompositeOperation = 'destination-in';
+        ex.drawImage(h.body.mask, 0, 0);
+        cx.globalCompositeOperation = 'lighter';
+        cx.globalAlpha = 0.6;
+        cx.drawImage(this.envC, 0, h.bob);
+        cx.globalAlpha = 1;
+        cx.globalCompositeOperation = 'source-over';
+      }
       const WF = h.wheels;
       const fr = Math.floor(((h.angle % WF.period) + WF.period) % WF.period / WF.period * WF.frames.length) % WF.frames.length;
       for (const [wx, wy] of ND.HERO.WHEELS) cx.drawImage(WF.frames[fr], wx - WF.R, wy - WF.R);
-      const x = h.x + (h.dx || 0), y = h.y;
+      // driving lights: pool on the road ahead + a beam you can see in the rain
+      const c = this.c, g0 = this.g;
+      const air = 0.06 + 0.5 * Math.max(R.weather.v.rain, R.weather.v.fog * 0.8);
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = 0.55;
+      c.drawImage(this.fx.beamGround, x - 212, Y.CAR - 12);
+      c.drawImage(this.fx.redPool, x + 262, Y.CAR - 5);
+      c.globalAlpha = air;
+      c.drawImage(this.fx.beamAir, x - 226, y + 46 - 16);
+      c.globalAlpha = 1;
+      c.globalCompositeOperation = 'source-over';
+      g0.globalAlpha = 0.35;
+      g0.drawImage(this.fx.beamGround, x - 212, Y.CAR - 12);
+      g0.globalAlpha = air * 0.6;
+      g0.drawImage(this.fx.beamAir, x - 226, y + 46 - 16);
+      g0.globalAlpha = 1;
       this.reflect(this.carC, x, Y.CAR, HH, 0.34, R.t, 80);
       this.c.drawImage(this.carC, x, y);
       this.occlude(this.carC, x, y);
@@ -543,6 +680,146 @@
       g.fillRect(x + 293, Y.CAR + 3, 6, 40);
       g.fillStyle = 'rgba(255,150,30,0.35)';
       g.fillRect(x + 1, Y.CAR + 6, 6, 26);
+      // raindrops bursting on the roof, hood and rear deck
+      const hits = w.rain.carHits;
+      if (hits.length) {
+        c.globalCompositeOperation = 'lighter';
+        const crowns = this.fx.rings.crowns;
+        for (const hit of hits) {
+          const lx = hit.u * (HW - 4) + 2, ly = ND.HERO.topY(lx);
+          c.globalAlpha = 0.75 * (1 - hit.age / 7);
+          c.drawImage(crowns[hit.age % 3], Math.round(x + lx - 2), Math.round(y + ly - 2 + h.bob - (hit.age < 2 ? 1 : 0)));
+        }
+        c.globalAlpha = 1;
+        c.globalCompositeOperation = 'source-over';
+      }
+    }
+
+    // Splash crowns and expanding ripple rings on the wet street.
+    drawSplashes(R) {
+      const sp = this.world.rain.splashes;
+      if (!sp.length) return;
+      const c = this.c, rings = this.fx.rings.rings, crowns = this.fx.rings.crowns;
+      c.globalCompositeOperation = 'lighter';
+      for (const s of sp) {
+        const x = Math.round(CX + (R.D - s.P) * s.f);
+        if (x < -12 || x > W + 12) continue;
+        const k = s.age / s.life;
+        const ri = Math.min(rings.length - 1, Math.floor(k * (2 + s.f * 4.5)));
+        const img = rings[ri];
+        c.globalAlpha = (1 - k) * (0.28 + s.f * 0.14);
+        c.drawImage(img, x - (img.width >> 1), s.y - (img.height >> 1));
+        if (s.crown && s.age < 4) {
+          c.globalAlpha = 0.55 * (1 - s.age / 4);
+          c.drawImage(crowns[s.age % 3], x - 2, s.y - 2 - (s.age < 2 ? 1 : 0));
+        }
+      }
+      c.globalAlpha = 1;
+      c.globalCompositeOperation = 'source-over';
+    }
+
+    // Light map for rain: last frame's bloom over a dim ambient, so drops
+    // sparkle where they pass neon, lamps and headlights.
+    buildLightMap(R) {
+      const l = this.lmx, fl = R.weather.flash;
+      l.globalCompositeOperation = 'source-over';
+      l.globalAlpha = 1;
+      l.fillStyle = `rgb(${62 + fl * 150 | 0},${54 + fl * 140 | 0},${96 + fl * 150 | 0})`;
+      l.fillRect(0, 0, W / 2, H / 2);
+      l.globalCompositeOperation = 'lighter';
+      l.drawImage(this.bl[0], 0, 0);
+      l.drawImage(this.bl[0], 0, 0);
+      l.globalCompositeOperation = 'source-over';
+    }
+
+    drawRain(R, which) {
+      const layers = this.world.rain.layers;
+      const rc = this.rainX;
+      let n = 0;
+      rc.globalCompositeOperation = 'source-over';
+      rc.clearRect(0, 0, W, H);
+      const rain = R.weather.v.rain;
+      for (const i of which) {
+        const L = layers[i];
+        if (L.sheets) {
+          const ox = Math.round((R.tick * L.vx) % W), oy = Math.round((R.tick * L.vy) % H);
+          const nSheets = this.q >= 2 ? 3 : 1;
+          for (let k = 0; k < nSheets; k++) {
+            const a = (nSheets === 3 ? ND.clamp(rain * 3 - k, 0, 1) : Math.min(1, rain * 1.6)) * L.a;
+            if (a < 0.02) continue;
+            rc.globalAlpha = a;
+            const img = L.sheets[k];
+            rc.drawImage(img, ox - W, oy - H);
+            rc.drawImage(img, ox, oy - H);
+            rc.drawImage(img, ox - W, oy);
+            rc.drawImage(img, ox, oy);
+            n++;
+          }
+          continue;
+        }
+        if (!L.p.length) continue;
+        rc.globalAlpha = L.a;
+        for (const p of L.p) {
+          const s = L.sprites[p.s];
+          rc.drawImage(s.c, Math.round(p.x - s.ox), Math.round(p.y - s.oy));
+          n++;
+        }
+      }
+      if (!n) return;
+      rc.globalAlpha = 1;
+      if (this.q < 1) {
+        // minimal quality: flat lavender rain, no light map
+        rc.globalCompositeOperation = 'source-in';
+        rc.fillStyle = 'rgb(120,110,170)';
+        rc.fillRect(0, 0, W, H);
+        rc.globalCompositeOperation = 'source-over';
+        this.c.globalCompositeOperation = 'lighter';
+        this.c.drawImage(this.rainC, 0, 0);
+        this.c.globalCompositeOperation = 'source-over';
+        return;
+      }
+      rc.globalCompositeOperation = 'source-in';
+      rc.imageSmoothingEnabled = true;
+      rc.drawImage(this.lm, 0, 0, W, H);
+      rc.imageSmoothingEnabled = false;
+      rc.globalCompositeOperation = 'source-over';
+      const c = this.c;
+      c.globalCompositeOperation = 'lighter';
+      c.drawImage(this.rainC, 0, 0);
+      c.globalCompositeOperation = 'source-over';
+    }
+
+    drawMist(R, which) {
+      const v = R.weather.v;
+      const a = which === 'back' ? 0.15 + v.fog * 0.95 : v.fog * 0.75 + v.rain * 0.12;
+      if (a < 0.02) return;
+      if (which === 'back') this.tiled(this.fx.mistBack, -(R.D * 0.55 + R.tick * 0.12), 196, Math.min(1, a));
+      else this.tiled(this.fx.mistFront, -(R.D * 1.35 + R.tick * 0.25), H - 64, Math.min(1, a));
+    }
+
+    // Overcast, lightning bolts and sky flashes.
+    drawStormSky(R) {
+      const c = this.c, g = this.g, wx = R.weather;
+      const oc = ND.clamp((wx.v.cloud - 0.45) * 1.9, 0, 1);
+      if (oc > 0.01) this.tiled(this.fx.overcast, -(R.tick * 0.06 + R.D * 0.01), 0, oc);
+      const fl = wx.flash;
+      if (fl > 0.01) {
+        c.globalCompositeOperation = 'lighter';
+        c.globalAlpha = Math.min(1, fl * 0.6);
+        c.drawImage(this.fx.skyFlash, 0, 0);
+        if (oc > 0.01) this.tiled(this.fx.overcast, -(R.tick * 0.06 + R.D * 0.01), 0, Math.min(1, fl * oc * 1.2));
+        c.globalCompositeOperation = 'lighter';
+        const b = wx.bolt;
+        if (b && b.img && fl > 0.2) {
+          c.globalAlpha = Math.min(1, fl * 1.4);
+          c.drawImage(b.img.c, b.x, 0);
+          g.globalAlpha = Math.min(1, fl * 1.4);
+          g.drawImage(b.img.g, b.x, 0);
+          g.globalAlpha = 1;
+        }
+        c.globalAlpha = 1;
+        c.globalCompositeOperation = 'source-over';
+      }
     }
 
     drawForeground(R) {
@@ -588,6 +865,25 @@
       c.drawImage(v, 0, H - vt, W, vt, 0, H - vt, W, vt);
       c.drawImage(v, 0, vt, vs, H - 2 * vt, 0, vt, vs, H - 2 * vt);
       c.drawImage(v, W - vs, vt, vs, H - 2 * vt, W - vs, vt, vs, H - 2 * vt);
+      // lightning washes the whole street for a moment
+      const fl = R.weather.flash;
+      if (fl > 0.01) {
+        c.globalCompositeOperation = 'lighter';
+        c.fillStyle = `rgba(90,86,150,${Math.min(0.4, fl * 0.17)})`;
+        c.fillRect(0, 0, W, H);
+        c.globalCompositeOperation = 'source-over';
+      }
+      // film grain
+      if (this.grainOn && this.q >= 1) c.drawImage(this.fx.grain[(R.tick >> 1) & 3], 0, 0);
+      // optional cinematic letterbox (2.39:1)
+      const target = this.letterOn ? 46 : 0;
+      this.letter += (target - this.letter) * 0.06;
+      const lb = Math.round(this.letter);
+      if (lb > 0) {
+        c.fillStyle = '#000';
+        c.fillRect(0, 0, W, lb);
+        c.fillRect(0, H - lb, W, lb);
+      }
     }
   }
 

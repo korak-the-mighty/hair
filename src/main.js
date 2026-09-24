@@ -102,6 +102,14 @@
   }
 
   // --- UI
+  const toastEl = document.getElementById('toast');
+  let toastTimer = 0;
+  function toast(text) {
+    toastEl.textContent = text;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1600);
+  }
   let hudTimer = 0;
   function showHud() {
     document.body.classList.remove('idle');
@@ -127,6 +135,9 @@
     else if (e.key === ' ') { paused = !paused; e.preventDefault(); }
     else if (e.key === 'h' || e.key === 'H') document.body.classList.toggle('nohud');
     else if (e.key === 'd' || e.key === 'D') stats.classList.toggle('show');
+    else if (e.key === 'w' || e.key === 'W') { world.weather.cycle(); toast(world.weather.phase); }
+    else if (e.key === 'l' || e.key === 'L') { renderer.letterOn = !renderer.letterOn; toast(renderer.letterOn ? 'letterbox on' : 'letterbox off'); }
+    else if (e.key === 'g' || e.key === 'G') { renderer.grainOn = !renderer.grainOn; toast(renderer.grainOn ? 'grain on' : 'grain off'); }
     showHud();
   });
   window.addEventListener('mousemove', showHud);
@@ -135,7 +146,7 @@
 
   function boot() {
     const t0 = performance.now();
-    world = new ND.World(seed);
+    world = new ND.World(seed, { weather: params.get('weather') });
     renderer = new ND.Renderer(world, { quality: params.get('q') != null ? +params.get('q') : undefined });
     ND.world = world;
     ND.renderer = renderer;

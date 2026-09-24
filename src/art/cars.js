@@ -278,6 +278,22 @@
 
     const body = ND.sprite(pb, gl);
     body.glowPts = { tail: [296, 34], front: [3, 46] };
+
+    // Paint mask for live environment reflections: strongest on the upper
+    // flank above the paint's horizon line, faint on the lower flank.
+    const mask = new ND.PB(HW, HH);
+    mask.polyFn(poly, (x, y) => {
+      if (y > 60) return;
+      const dt = y - topY(x);
+      const a = dt < 3.5 ? 0.2 : y < 44 ? 0.3 : 0.55 + ND.clamp((y - 44) / 14, 0, 1) * 0.45;
+      mask.set(x, y, ND.pack(255, 255, 255, a * 255));
+    });
+    for (const g of [shield, glassDoor, glassRear]) mask.polyFn(g, (x, y) => mask.set(x, y, 0));
+    for (const [wx, wy] of WHEELS) mask.discFn(wx, wy, 24.5, (x, y) => { if (y <= 62) mask.set(x, y, 0); });
+    mask.rect(176, 34, 24, 24, 0);
+    mask.rect(0, 44, 8, 6, 0);
+    mask.rect(290, 25, 10, 20, 0);
+    body.mask = mask.canvas();
     return body;
   }
 
@@ -468,5 +484,5 @@
   ND.genHeroCar = genHeroCar;
   ND.genWheelFrames = genWheelFrames;
   ND.genTraffic = genTraffic;
-  ND.HERO = { W: HW, H: HH, WHEELS, WHEEL_R };
+  ND.HERO = { W: HW, H: HH, WHEELS, WHEEL_R, topY };
 })();
