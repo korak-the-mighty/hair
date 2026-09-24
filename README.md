@@ -43,6 +43,8 @@ Options combine with `&`, for example `?weather=storm&seed=7`.
 
 ## Soundtrack
 
+Listen to a sample: [`docs/soundtrack-sample.webm`](docs/soundtrack-sample.webm) (2:26, Opus).
+
 An endless night-drive disco mix, synthesised live in the browser with no
 audio files. Every track is composed on the fly: its key, tempo (108–122 BPM),
 chord loop, lead motif and arpeggio pattern are all picked fresh.
