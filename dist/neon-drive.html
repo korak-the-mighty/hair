@@ -2241,8 +2241,8 @@
   const WHEELS = [[66, 54], [246, 54]];
 
   const TOP = [
-    [1, 42], [4, 39.5], [14, 37.6], [34, 35.2], [60, 31.8], [84, 28.6], [100, 26.2], [104, 25.4],
-    [118, 15], [130, 6.5], [137, 3], [145, 1.4], [196, 1.2], [203, 2.2], [212, 4.6],
+    [1, 42], [4, 39.5], [14, 37.6], [34, 35.2], [60, 31.8], [84, 28.6], [100, 26.4], [104, 26],
+    [140, 2], [146, 1.2], [196, 1.2], [203, 2.2], [212, 4.6],
     [232, 9.5], [252, 13.4], [272, 15.8], [288, 17.2], [295, 18.6], [298, 21],
   ];
 
@@ -2463,15 +2463,24 @@
 
     // ---- greenhouse
     // windshield seen edge-on: dark glass wedge with neon reflections
-    const shield = [[98, 26.6], [104, 25.4], [118, 15], [130, 6.5], [137, 3], [141, 3.2], [140, 5], [128, 13], [116, 22], [113, 26.4]];
+    // windshield seen from the side: smooth tinted glass between the rake and
+    // the A-pillar, one soft reflection band
+    const shield = [[101, 26.6], [104, 26], [140, 2], [146, 1.4], [146, 3.6], [143.5, 3.6], [113.5, 26.6]];
     pb.polyFn(shield, (x, y) => {
-      let c = ND.mix(rgb('#2a2050'), rgb('#120c24'), (y - 3) / 24);
-      const s = x + y * 1.4;
-      if (s % 19 < 3) c = ND.mix(c, rgb('#ff8ae0'), 0.45);
-      else if (s % 19 < 5) c = ND.mix(c, rgb('#8ad8ff'), 0.25);
+      let c = ND.mix(rgb('#30285e'), rgb('#141030'), ND.clamp((y - 2) / 24, 0, 1));
       pb.set(x, y, ND.pack(c[0], c[1], c[2]));
     });
-    const glassDoor = [[117, 26], [128, 15], [136, 8], [142, 4], [172, 4], [172, 26]];
+    // frame highlight: the top pixel of each glass column (inside the outline)
+    for (let x = 102; x <= 146; x++) {
+      for (let y = 0; y < 28; y++) {
+        const i = y * HW + x;
+        if (pb.d[i] >>> 24 && y >= Math.floor(topY(x)) && ND.clamp(x, 101, 146) === x) {
+          const inShield = y > topY(x) - 0.5 && y < topY(x) + 1.5;
+          if (inShield) { pb.set(x, y, P(rgb('#eeeaf8'))); break; }
+        }
+      }
+    }
+    const glassDoor = [[114.5, 26], [144.5, 4], [172, 4], [172, 26]];
     const glassRear = [[176, 4], [197, 4], [202, 6], [206, 14], [208, 26], [176, 26]];
     pb.polyFn(glassRear, (x, y) => {
       const v = (y - 4) / 22;
@@ -2484,14 +2493,11 @@
       const c = ND.mix(rgb('#2a2250'), rgb('#120e22'), v);
       pb.set(x, y, ND.pack(c[0], c[1], c[2], 165)); // open window: we see through to the far side
     });
-    // A-pillar
-    pb.lineFn(114, 26, 142, 3, (x, y) => {
-      pb.set(x, y, P(rgb('#f0ecfa')));
-      pb.set(x + 1, y, P(rgb('#b8b2d2')));
-      pb.set(x + 2, y, P(rgb('#1a1628')));
+    // A-pillar: one slim dark post with a lit leading edge
+    pb.lineFn(113, 26, 143, 4, (x, y) => {
+      pb.set(x, y, P(rgb('#8e88b0')));
+      pb.set(x + 1, y, P(rgb('#1a1628')));
     });
-    // windshield top edge highlight
-    pb.lineFn(104, 25, 138, 2, (x, y) => pb.set(x, y - 1, P(rgb('#ffffff'))));
     // B-pillar
     for (let y = 3; y < 27; y++) {
       pb.set(173, y, P(rgb('#1c1830')));
@@ -2509,8 +2515,9 @@
 
     // ---- interior visible through the open window
     // steering wheel + dash
-    pb.thick(129, 12, 131, 24, 0.9, P(rgb('#0e0a16')));
-    pb.thick(111, 22, 132, 20, 1.2, P(rgb('#16121e')));
+    // steering wheel rim and dash, inside the cabin behind the A-pillar
+    pb.thick(136, 13, 138, 23, 0.9, P(rgb('#0e0a16')));
+    pb.thick(121, 23, 140, 21, 1.1, P(rgb('#16121e')));
     // seat back / headrest
     for (let y = 6; y < 26; y++) for (let x = 162; x < 171; x++) {
       if (y < 9 && (x < 164 || x > 168)) continue;
@@ -2534,13 +2541,12 @@
     for (let y = 28; y < 60; y++) if (y < 35 || y > 56) pb.set(173, y, P(rgb('#9894b4')));
 
     // ---- side mirror on the A-pillar
-    pb.thick(121, 21, 124, 20, 0.8, P(rgb('#2a2440')));
-    pb.polyFn([[112, 16], [120, 15], [122, 17], [121, 22], [113, 22], [111, 20]], (x, y) => {
-      const c = y < 18 ? rgb('#ffffff') : y < 20 ? rgb('#e8e4f4') : rgb('#b8b4d0');
+    pb.line(122, 19, 124, 19, P(rgb('#2a2440')));
+    pb.polyFn([[115, 15.5], [120.5, 15], [122.5, 16.5], [122, 20.5], [116, 20.5], [114.5, 19]], (x, y) => {
+      const c = y < 17 ? rgb('#ffffff') : y < 19 ? rgb('#e6e2f2') : rgb('#b4aed0');
       pb.set(x, y, P(c));
     });
-    pb.set(111, 20, P(rgb('#9894b4')));
-    pb.hline(113, 120, 23, P(rgb('#5a5480')));
+    pb.hline(116, 121, 21, P(rgb('#4a4470')));
 
     // ---- lights
     const amber = rgb('#ffa21e'), red = rgb('#ff2438');
@@ -2762,7 +2768,7 @@
   // Door window glass (rolled up in the rain): tint, highlights, raindrops.
   function genWindowGlass(seed) {
     const r = ND.rng(seed);
-    const poly = [[117, 26], [128, 15], [136, 8], [142, 4], [172, 4], [172, 26]];
+    const poly = [[114.5, 26], [144.5, 4], [172, 4], [172, 26]];
     const pb = new ND.PB(HW, 28);
     pb.polyFn(poly, (x, y) => {
       let a = 60, c = [150, 140, 215];
