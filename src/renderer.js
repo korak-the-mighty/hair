@@ -232,12 +232,12 @@
       w.sky.draw(R);
       this.drawStormSky(R);
       w.air.draw(R, 'plane', wx);
+      w.air.draw(R, 'heli', wx); // far away: the skyline and the street hide it and its beam
       this.drawSkyline(R);
       this.drawBuildings(R);
       this.drawSidewalk(R);
       this.drawStreetLife(R);
       this.drawCurb(R);
-      w.air.draw(R, 'heli', wx);
       this.drawMist(R, 'back');
       this.drawRoad(R);
       this.drawSplashes(R);
@@ -657,8 +657,17 @@
         cx.globalCompositeOperation = 'source-over';
       }
       // driver (behind the door), then the door top again so the torso stays inside
-      const Dv = h.driver;
-      cx.drawImage(Dv.c, Dv.x, Dv.y + h.bob + (this.nod || 0));
+      // he talks (lip sync from his voice) and sometimes turns to us, with a
+      // nod when he's done
+      const Dv = h.driver, tk = this.mp && this.mp.talk;
+      let face = Dv.c, nod = this.nod || 0;
+      if (tk) {
+        const open = tk.mouth > 0.55 ? 2 : tk.mouth > 0.2 ? 1 : 0;
+        if (tk.cam) face = Dv.cam[open];
+        else if (open) face = Dv.talk[open - 1];
+        if (tk.cam && tk.left < 0 && tk.left > -0.3) nod = 1;
+      }
+      cx.drawImage(face, Dv.x, Dv.y + h.bob + nod);
       // window glass rolls up when it rains
       if (h.window > 0) {
         const top = Math.round(26 - h.window * 23);

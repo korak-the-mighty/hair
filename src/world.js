@@ -408,10 +408,16 @@
       const wet = this.weather.v.rain > 0.4;
       if (wet) {
         hero.armOut = Math.max(0, hero.armOut - 1 / 24);
-        if (hero.armOut === 0) hero.window = Math.min(1, hero.window + 1 / 80);
+        if (hero.armOut === 0 && hero.window < 1) {
+          hero.window = Math.min(1, hero.window + 1 / 80);
+          if (hero.window === 1) ND.bus.emit('window-up');
+        }
       } else {
         hero.window = Math.max(0, hero.window - 1 / 80);
-        if (hero.window === 0) hero.armOut = Math.min(1, hero.armOut + 1 / 24);
+        if (hero.window === 0 && hero.armOut < 1) {
+          hero.armOut = Math.min(1, hero.armOut + 1 / 24);
+          if (hero.armOut === 1) ND.bus.emit('arm-out'); // the cigarette is back out
+        }
       }
       // cigarette smoke, whisked back by the wind (car-local coordinates)
       const A = hero.arm, fr = A.frames[ND.clamp(Math.round(((hero.armTh - A.th0) / (A.th1 - A.th0)) * (A.N - 1)), 0, A.N - 1)];

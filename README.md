@@ -23,6 +23,7 @@ same thing bundled into one file you can copy anywhere (rebuild it with
 | `N` | Next track |
 | `R` | Record picture and sound to a video file (press again to stop) |
 | `T` | Show/hide "Now playing" track titles |
+| `V` | The driver's commentary on/off |
 | `W` | Skip to the next weather (clear → drizzle → rain → storm → mist) |
 | `L` | Cinematic 2.39:1 letterbox on/off |
 | `G` | Film grain on/off |
@@ -80,13 +81,34 @@ built into the page, so it never calls ElevenLabs while it plays:
   and builds. The drop-in lines end exactly as the drop hits.
 - **Sung chops** ("ooh", "ah", "hey"…) are retuned to each track's chords and
   ride the second half of the drops.
-- **Robot lines** ("Neon city", "We ride tonight"…) are sung by a vocoder
-  built in Web Audio. The voice shapes a synth that plays the track's chord
-  and steps to a new note on each syllable, so the robot is always in tune.
-  A two-line robot chorus opens each drop, and Amiga and Electro tracks add
-  a line in the breakdown.
+- **Robot lines** ("Neon city", "Drop the beat", "Suave"…) are sung by a
+  vocoder built in Web Audio. The voice shapes a synth that plays the track's
+  chord and steps to a new note on each syllable, so the robot is always in
+  tune. A robot chorus opens every drop (four lines in the final one), and
+  sings in the breakdown. Some whispered hooks go through the vocoder too.
+- **The bar before each drop** belongs to one voice, timed to end exactly
+  as the drop lands after the silent beat: a whispered hook, the robot
+  ("Drop the beat."), or the driver ("This is the moment.").
+- **Talk box:** in some tracks the second half of each drop is played by a
+  talk box: a synth shaped by three moving vowel formants, so every note
+  opens from "oo" into "wah".
 
-The lines are listed in `tools/vocals.json`. To regenerate them, run
+### The driver
+
+The man at the wheel talks, in his own voice (ElevenLabs' Liam): thrilled,
+smooth, and aware that we're riding along. He reacts to the song (a new
+track, a build-up, the drop: "Yes! Yes! Yes!"), to the world (rain, the
+window going up, lightning, the helicopter, his cigarette going back out:
+"One for the road never hurt."), and now and then just muses ("Suave.",
+"Left-handed.", "Best job in the world."). Sometimes he turns to the camera
+("Hey. Glad you're riding with me.") and nods when he's done.
+
+He waits for a clear moment, so he never talks over the robot, the hooks
+or the silent beat, and the music dips under his voice like a radio DJ's.
+His mouth follows the loudness of his voice. `V` turns him off.
+
+The lines are listed in `tools/vocals.json`, each tagged with the moment it
+belongs to. To regenerate them, run
 `node tools/make-vocals.js` with an ElevenLabs key, either in
 `ELEVENLABS_API_KEY` or stored as a credential for `api.elevenlabs.io` that is
 sent as the `xi-api-key` header. Existing clips are skipped; `--force`
@@ -124,7 +146,10 @@ standard 16:9 size, so pixels stay perfectly square and crisp: 2× for 720p,
   sprite authoring and noise.
 - `src/art/*`: procedural art: sky and moon, three depths of skyline plus the
   causeway, Art Deco facades lit by their own neon (baked light maps), palms,
-  pedestrians with skeletal walk cycles, the hero car and traffic, and street props.
+  pedestrians with skeletal walk cycles, the hero car and its talking driver,
+  period traffic (full-size sedans, vinyl-roofed coupes, a Trans Am, a woodie
+  wagon, a square-body pickup, a Checker cab and a police cruiser), and
+  street props.
 - `src/world.js`: the endless world. Parallax sequences spawn to the left
   and retire off the right. Building art is generated in small time slices
   between frames, so nothing stalls the frame.

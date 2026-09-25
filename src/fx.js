@@ -131,16 +131,19 @@
       this.nextHeli = 60 * this.r.range(70, 140);
       this.heli = genHeli();
       this.searchBeam = (() => {
-        // vertical cone, apex at top-centre
-        const w = 40, h = 170;
+        // narrow vertical cone, apex at top-centre: a bright core that the
+        // haze scatters into soft edges, fading out with distance
+        const w = 28, h = 190;
         const pb = new ND.PB(w, h);
         for (let y = 0; y < h; y++) {
-          const t = y / (h - 1), half = 1 + (w / 2 - 1) * t;
+          const t = y / (h - 1), half = 1 + (w / 2 - 1) * Math.pow(t, 0.9);
           for (let x = 0; x < w; x++) {
             const dx = Math.abs(x - w / 2 + 0.5) / half;
             if (dx >= 1) continue;
-            const a = dq((1 - dx * dx) * Math.pow(1 - t, 0.9), x, y);
-            if (a > 0) pb.set(x, y, ND.pack(230 * a, 236 * a, 255 * a));
+            const across = Math.pow(1 - dx * dx, 1.6);
+            const along = Math.pow(1 - t, 1.3) * (0.45 + 0.55 * Math.exp(-t * 2.5));
+            const a = dq(across * along, x, y, 16);
+            if (a > 0) pb.set(x, y, ND.pack(222 * a, 230 * a, 255 * a));
           }
         }
         return pb.canvas();
@@ -156,6 +159,7 @@
       if (tick >= this.nextHeli && weather.v.storm < 0.4) {
         const dir = r() < 0.5 ? -1 : 1;
         this.items.push({ kind: 'heli', x: dir < 0 ? W + 30 : -30, y: r.range(14, 44), vx: dir * r.range(0.4, 0.6) + 0.12, ph: r() * 100, dir });
+        ND.bus.emit('heli');
         this.nextHeli = tick + 60 * r.range(150, 320);
       }
       for (const it of this.items) it.x += it.vx;
@@ -177,19 +181,20 @@
         } else {
           // searchlight first (behind the body)
           const ang = Math.sin(t * 0.006) * 0.55 + Math.sin(t * 0.0021) * 0.25;
-          const beamA = 0.22 + weather.v.fog * 0.45 + weather.v.rain * 0.2;
+          // the beam only shows where there is haze or rain to catch it
+          const beamA = 0.1 + weather.v.fog * 0.3 + weather.v.rain * 0.14;
           c.save();
           c.globalCompositeOperation = 'lighter';
-          c.globalAlpha = Math.min(0.75, beamA);
+          c.globalAlpha = Math.min(0.42, beamA);
           c.translate(x + 7, y + 9);
           c.rotate(ang);
-          c.drawImage(this.searchBeam, -20, 0);
+          c.drawImage(this.searchBeam, -14, 0);
           c.restore();
           g.save();
-          g.globalAlpha = 0.25;
+          g.globalAlpha = 0.1;
           g.translate(x + 7, y + 9);
           g.rotate(ang);
-          g.drawImage(this.searchBeam, -20, 0);
+          g.drawImage(this.searchBeam, -14, 0);
           g.restore();
           // body (flip when flying right)
           c.save();

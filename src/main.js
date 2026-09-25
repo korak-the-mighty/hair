@@ -141,6 +141,7 @@
     else if (e.key === 'g' || e.key === 'G') { renderer.grainOn = !renderer.grainOn; toast(renderer.grainOn ? 'grain on' : 'grain off'); }
     else if (e.key === 'm' || e.key === 'M') { const on = music.toggle(); soundHint(false); toast(on ? 'music on' : 'music off'); }
     else if (e.key === 'n' || e.key === 'N') { if (!music.ctx) music.start(); music.skip(); soundHint(false); toast('next track'); }
+    else if (e.key === 'v' || e.key === 'V') { music.chatter = !music.chatter; toast(music.chatter ? 'driver talk on' : 'driver talk off'); }
     else if (e.key === 't' || e.key === 'T') { renderer.titlesOn = !renderer.titlesOn; toast(renderer.titlesOn ? 'track titles on' : 'track titles off'); }
     else if (e.key === 'r' || e.key === 'R') toggleRecording();
     else startSound();

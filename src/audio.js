@@ -92,6 +92,10 @@
   };
   // Vocoder: filter bands, envelope make-up gain and output level.
   const VOC_BANDS = 18, VOC_GAIN = 12, VOC_OUT = 0.75;
+  // Talk box: first three formants of the vowels it "sings" through, and the
+  // closed vowel every note opens from.
+  const FORMANTS = { a: [730, 1090, 2440], e: [530, 1840, 2480], i: [300, 2200, 2950], o: [570, 840, 2410], u: [320, 800, 2240] };
+  const TB_VOWELS = ['a', 'o', 'a', 'e', 'a', 'o', 'i', 'a'];
   // What the vocoder sings: chord-tone indices, one per syllable, and the last note.
   const VOC_MELODIES = [
     { notes: [0, 0, 1, 2, 1], end: 0 }, { notes: [2, 1, 1, 0], end: 0 }, { notes: [0, 2, 1, 2], end: 1 },
@@ -253,6 +257,7 @@
       chipPat: r.pick(CHIP_CHORDS),
       bellPat: r.pick(BELLS),
       stabPat: r.pick(STABS),
+      talkbox: r() < { miami: 0.5, amiga: 0.2, electro: 0.6 }[style],
     };
   }
 
@@ -308,6 +313,9 @@
       this.seed = seed;
       this.r = ND.rng(seed * 13 + 7);
       this.forceStyle = STYLES.includes(opts.style) ? opts.style : null;
+      this.chatter = true; // the driver talks
+      this.talkReq = [];
+      this.recentTalk = [];
       this.ctx = null;
       this.enabled = false;
       this.trackIndex = 0;
@@ -340,13 +348,16 @@
       N.sweep.type = 'lowpass'; N.sweep.frequency.value = 18000; N.sweep.Q.value = 0.9;
       N.music = ctx.createGain();
       N.music.gain.value = 0.9;
-      N.music.connect(N.duck).connect(N.sweep).connect(N.master);
+      // the bed: everything but the vocals, dipped while the driver talks
+      N.bed = ctx.createGain();
+      N.bed.connect(N.master);
+      N.music.connect(N.duck).connect(N.sweep).connect(N.bed);
       N.lead = ctx.createGain();
       N.lead.gain.value = 0.9;
       N.lead.connect(N.sweep);
       N.drums = ctx.createGain();
       N.drums.gain.value = 0.95;
-      N.drums.connect(N.master);
+      N.drums.connect(N.bed);
       // warm saturation for the 808 kick
       N.sat = ctx.createWaveShaper();
       const sat = new Float32Array(1024);
@@ -368,7 +379,7 @@
       N.gatedIn = ctx.createGain();
       const gOut = ctx.createGain();
       gOut.gain.value = 0.7;
-      N.gatedIn.connect(N.gated).connect(gOut).connect(N.master);
+      N.gatedIn.connect(N.gated).connect(gOut).connect(N.bed);
       // ping-pong delay (dotted eighth, set per track)
       N.delayIn = ctx.createGain();
       const dl = (N.dl = ctx.createDelay(2)), dr = (N.dr = ctx.createDelay(2));
@@ -389,7 +400,7 @@
       const voxHP = ctx.createBiquadFilter();
       voxHP.type = 'highpass'; voxHP.frequency.value = 170;
       N.vox.connect(voxHP).connect(N.master);
-      this.vox = { hooks: [], chops: [], robots: [], ready: false };
+      this.vox = { hooks: [], chops: [], robots: [], driver: [], ready: false };
       this.recentHooks = [];
       this.voxLoading = this.loadVocals(ctx);
       // noise buffers
@@ -427,24 +438,33 @@
           while (on < d.length && Math.abs(d[on]) < peak * 0.05) on++;
           while (off > on && Math.abs(d[off]) < peak * 0.03) off--;
           const item = {
-            id: clip.id, text: clip.text, tags: clip.tags || [], buf,
+            id: clip.id, text: clip.text, tags: clip.tags || [], voice: clip.voice, buf,
             onset: Math.max(0, on / sr - 0.012), dur: (off - on) / sr + 0.05,
             norm: Math.min(4, 0.7 / (peak || 1)),
           };
+          if (clip.kind !== 'chop') item.syl = syllables(d, sr, on, off);
           if (clip.kind === 'chop') {
             item.midi = detectPitch(d, sr, on, off);
             if (item.midi == null) continue; // unpitched: not usable as a chop
             this.vox.chops.push(item);
-          } else if (clip.kind === 'robot') {
-            item.voice = clip.voice;
-            item.syl = syllables(d, sr, on, off);
-            this.vox.robots.push(item);
+          } else if (clip.kind === 'robot') this.vox.robots.push(item);
+          else if (clip.kind === 'driver') {
+            // loudness every 25 ms, for lip sync
+            const hop = Math.round(sr / 40), env = [];
+            for (let i = on; i < off; i += hop) {
+              let e = 0;
+              for (let j = i; j < Math.min(off, i + hop); j++) e += d[j] * d[j];
+              env.push(Math.sqrt(e / hop));
+            }
+            const mx = Math.max(...env) || 1;
+            item.env = env.map((v) => v / mx);
+            this.vox.driver.push(item);
           } else this.vox.hooks.push(item);
         } catch (e) {
           console.warn('Neon Drive: vocal clip failed to load', clip.id, e);
         }
       }
-      this.vox.ready = this.vox.hooks.length + this.vox.chops.length + this.vox.robots.length > 0;
+      this.vox.ready = this.vox.hooks.length + this.vox.chops.length + this.vox.robots.length + this.vox.driver.length > 0;
     }
 
     impulse(ctx, secs, decay, gated) {
@@ -590,7 +610,14 @@
       this.newTrack();
       this.nextTime = ctx.currentTime + 0.15;
       this.startTicker();
-      ND.bus.on('lightning', (e) => this.thunder(e));
+      ND.bus.on('lightning', (e) => { this.thunder(e); this.request('lightning', 6); });
+      ND.bus.on('weather', (e) => {
+        const tag = { drizzle: 'rain', rain: 'rain', clear: 'clear', mist: 'mist' }[e.phase];
+        if (tag) this.request(tag);
+      });
+      ND.bus.on('heli', () => this.request('heli', 20));
+      ND.bus.on('arm-out', () => this.request('smoke'));
+      ND.bus.on('window-up', () => this.request('window'));
     }
     toggle() {
       if (!this.ctx || !this.enabled) { this.start(); return true; }
@@ -643,26 +670,111 @@
       const build1 = find('build', (s) => !s.second), fin = find('drop', (s) => s.final), outro = find('outro');
       if (r() < 0.75) plan.hooks.push({ bar: intro.start + Math.floor(intro.bars * 0.4), k: 0, tag: 'intro' });
       if (r() < 0.9) plan.hooks.push({ bar: brk.start + 1, k: 8, tag: 'break' });
-      if (r() < 0.8) plan.hooks.push({ bar: build2.start + Math.floor(build2.bars / 2), k: 0, tag: 'build' });
-      if (r() < 0.85) plan.hooks.push({ bar: fin.start - 1, k: 0, tag: 'drop-in', align: true });
-      if (r() < 0.35) plan.hooks.push({ bar: build1.start + build1.bars - 1, k: 0, tag: 'drop-in', align: true });
+      if (r() < 0.8) plan.hooks.push({ bar: build2.start + Math.floor(build2.bars / 2), k: 0, tag: 'build', robo: r() < 0.4 });
       if (r() < 0.5) plan.hooks.push({ bar: outro.start + 6, k: 0, tag: 'outro' });
       plan.chop = { pick: r(), rhythm: r.pick(CHOP_RHYTHMS), notes: r.pick(CHOP_NOTES), octave: r() < 0.5 ? 12 : 0 };
-      // robot vocoder: a two-line chorus opening each drop, and in the
-      // breakdown (and electro verses) a single line
-      if (r() < { miami: 0.55, amiga: 0.8, electro: 1 }[T.style]) {
-        const R = { pick: [r(), r()], mel: [r.pick(VOC_MELODIES), r.pick(VOC_MELODIES)], events: [] };
-        for (const d of T.sections) if (d.name === 'drop') R.events.push({ bar: d.start + 1, slot: 0 }, { bar: d.start + 5, slot: 1 });
-        if (T.style !== 'miami') R.events.push({ bar: brk.start + 4, slot: 0, soft: true });
-        if (T.style === 'electro') R.events.push({ bar: find('verse').start + 12, slot: 1, soft: true });
-        plan.robot = R;
+      // robot vocoder: a chorus of two lines opening each drop (four in the
+      // final one), a line in the breakdown, and one in electro verses
+      const R = { pick: [r(), r()], mel: [r.pick(VOC_MELODIES), r.pick(VOC_MELODIES)], events: [], dropIn: [] };
+      for (const d of T.sections) {
+        if (d.name !== 'drop') continue;
+        R.events.push({ bar: d.start + 1, slot: 0 }, { bar: d.start + 5, slot: 1 });
+        if (d.final) R.events.push({ bar: d.start + 9, slot: 0 }, { bar: d.start + 13, slot: 1 });
+      }
+      R.events.push({ bar: brk.start + 4, slot: 0, soft: true });
+      if (T.style === 'electro') R.events.push({ bar: find('verse').start + 12, slot: 1, soft: true });
+      plan.robot = R;
+      // the driver's moments in the song
+      plan.talk = [];
+      if (r() < 0.55) plan.talk.push({ bar: intro.start + 2, k: 0, tag: 'track' });
+      if (r() < 0.4) plan.talk.push({ bar: build1.start + 3, k: 0, tag: 'build' });
+      if (r() < 0.45) plan.talk.push({ bar: find('drop').start + 2, k: 8, tag: 'drop' });
+      if (r() < 0.5) plan.talk.push({ bar: brk.start + (brk.bars >= 16 ? 10 : 6), k: 0, tag: 'smooth' });
+      // the bar before each drop belongs to one voice, timed to end as the
+      // drop lands: a whispered hook, the driver, or the robot
+      for (const [bar, odds] of [[fin.start - 1, [0.35, 0.65, 0.9]], [build1.start + build1.bars - 1, [0.2, 0.55, 0.8]]]) {
+        const x = r();
+        if (x < odds[0]) plan.hooks.push({ bar, k: 0, tag: 'drop-in', align: true, robo: r() < 0.35 });
+        else if (x < odds[1]) plan.talk.push({ bar, k: 0, tag: 'drop-in', align: true });
+        else if (x < odds[2]) R.dropIn.push({ bar, mel: r.pick(VOC_MELODIES) });
       }
       return plan;
     }
 
+    // ---- the driver --------------------------------------------------------------------
+    // Something happened in the world he might talk about (for a while).
+    request(tag, ttl = 12) {
+      if (!this.ctx) return;
+      this.talkReq.push({ tag, until: this.ctx.currentTime + ttl });
+    }
+
+    pickTalk(tag) {
+      const pool = this.vox.driver.filter((h) => h.tags.includes(tag));
+      if (!pool.length) return null;
+      const fresh = pool.filter((h) => !this.recentTalk.includes(h.id));
+      return this.r.pick(fresh.length ? fresh : pool);
+    }
+
+    // Is nothing else sung from now through the next `n` bars?
+    clearAhead(t, n) {
+      if ((this.busyUntil || 0) > t) return false;
+      const P = this.vplan, hit = (e) => e.bar >= this.bar && e.bar <= this.bar + n;
+      return !P.hooks.some(hit) && !P.talk.some(hit) && !P.robot.events.some(hit) && !P.robot.dropIn.some(hit);
+    }
+
+    driverTalk(t, s, sb, k) {
+      for (const ev of this.vplan.talk) {
+        if (ev.bar !== this.bar || ev.k !== k) continue;
+        const clip = this.pickTalk(ev.tag);
+        if (!clip) continue;
+        const at = ev.align ? Math.max(t, t + this.stepDur * 16 - clip.dur - 0.02) : t;
+        this.say(at, clip, ev.tag === 'camera', ev.align);
+        return;
+      }
+      if (k % 8 || t < (this.talkEnd || 0) + 12) return;
+      if (s.name === 'build' && sb >= s.bars - 2) return;
+      if (!this.clearAhead(t, 2)) return;
+      // reactions first (freshest), otherwise the odd musing
+      this.talkReq = this.talkReq.filter((q) => q.until > t);
+      if (this.nextIdle == null) this.nextIdle = t + 25;
+      let tag = null;
+      if (this.talkReq.length) tag = this.talkReq.pop().tag;
+      else if (t >= this.nextIdle) tag = this.r.pick(s.name === 'break' || s.name === 'intro' ? ['smooth', 'idle', 'camera'] : ['idle', 'idle', 'camera', 'smooth']);
+      if (!tag) return;
+      const clip = this.pickTalk(tag);
+      if (!clip) return;
+      this.say(t, clip, tag === 'camera' || (tag === 'idle' && this.r() < 0.25));
+      this.nextIdle = t + clip.dur + 35 + this.r() * 50;
+    }
+
+    // He talks over the music like a radio DJ: the bed dips under his voice.
+    say(t, clip, cam, toDrop) {
+      const c = this.ctx, N = this.n;
+      const src = c.createBufferSource(); src.buffer = clip.buf;
+      const eq = c.createBiquadFilter(); eq.type = 'peaking'; eq.frequency.value = 2800; eq.gain.value = 2.5; eq.Q.value = 0.8;
+      const g = c.createGain(); g.gain.value = clip.norm * 0.95;
+      src.connect(eq).connect(g).connect(N.vox);
+      const rs = c.createGain(); rs.gain.value = 0.12; g.connect(rs).connect(N.verbIn);
+      src.start(t, clip.onset); src.stop(t + clip.dur + 0.2);
+      N.bed.gain.setTargetAtTime(0.6, Math.max(c.currentTime, t - 0.08), 0.06);
+      N.bed.gain.setTargetAtTime(1, t + clip.dur, toDrop ? 0.02 : 0.3);
+      this.talkEnd = t + clip.dur;
+      this.busyUntil = Math.max(this.busyUntil || 0, this.talkEnd);
+      this.recentTalk.push(clip.id);
+      if (this.recentTalk.length > 14) this.recentTalk.shift();
+      this.mark({ t, type: 'talk', clip, cam });
+    }
+
+    // Marks are consumed in time order, and some are scheduled ahead of others.
+    mark(m) {
+      let i = this.marks.length;
+      while (i > 0 && this.marks[i - 1].t > m.t) i--;
+      this.marks.splice(i, 0, m);
+    }
+
     // The two chorus lines for this track, fixed the first time they're sung.
     robotLine(slot) {
-      const R = this.vplan.robot, list = this.vox.robots;
+      const R = this.vplan.robot, list = this.vox.robots.filter((x) => !x.tags.includes('drop-in'));
       if (!R.clips) {
         const a = Math.floor(R.pick[0] * list.length);
         let b = Math.floor(R.pick[1] * list.length);
@@ -783,7 +895,8 @@
           if (!h) continue;
           // drop-in lines end exactly where the drop lands, after the silent beat
           const at = ev.align ? Math.max(t, t + this.stepDur * 16 - h.dur - 0.02) : t;
-          this.hook(at, h, ev.tag);
+          if (ev.robo) this.vocode(at, h, this.r.pick(VOC_MELODIES), voice(pcs, null, 62), 0.85);
+          else this.hook(at, h, ev.tag);
         }
       }
       // --- robot vocoder lines: sung on the chord, so always in tune
@@ -794,7 +907,16 @@
           const clip = this.robotLine(ev.slot);
           this.vocode(t, clip, RB.mel[ev.slot], voice(pcs, null, clip.voice === 'her' ? 62 : 52), ev.soft ? 0.75 : 1);
         }
+        for (const ev of RB.dropIn) {
+          if (ev.bar !== this.bar) continue;
+          const pool = this.vox.robots.filter((x) => x.tags.includes('drop-in'));
+          if (!pool.length) continue;
+          const clip = this.r.pick(pool);
+          this.vocode(Math.max(t, t + this.stepDur * 16 - clip.dur - 0.02), clip, ev.mel, voice(pcs, null, 52), 1);
+        }
       }
+      // --- the driver
+      if (this.chatter && this.vox && this.vox.driver.length && this.vplan) this.driverTalk(t, s, sb, k);
       // --- the wait: one beat of silence before every drop
       const gap = s.name === 'build' && lastBar && k >= 12;
       if (gap) {
@@ -945,7 +1067,9 @@
           const stac = T.style === 'electro' && n.len <= 2 && s.name !== 'break';
           const dur = this.stepDur * n.len * (s.name === 'break' ? 1.8 : stac ? 0.55 : 0.95);
           const vel = s.name === 'drop' ? 0.34 : s.name === 'break' ? 0.22 : 0.2;
-          this.lead(t, m, dur, vel, T.leadWave);
+          // talk-box tracks hand the second half of each drop to the talk box
+          if (T.talkbox && s.name === 'drop' && sb % 16 >= 8) this.talkbox(t, m, dur, vel);
+          else this.lead(t, m, dur, vel, T.leadWave);
           if (s.final) this.lead(t, m - 12 + (MINOR.includes((m - 3 - tonic + 120) % 12) ? -3 : -4), dur, vel * 0.45, T.style === 'amiga' ? 'pulse12' : 'square');
           // tracker echo: the note again three steps later, quieter
           if (T.style === 'amiga' && n.len <= 2 && s.name !== 'break') this.lead(t + this.stepDur * 3, m, dur, vel * 0.3, T.leadWave, true);
@@ -1300,6 +1424,46 @@
       for (const o of oscs) { o.start(t); o.stop(end); }
     }
 
+    // Talk box: a buzzy synth shaped by a mouth. Three formant filters glide
+    // from a closed "oo" into the note's vowel, so every note says "wah".
+    talkbox(t, m, dur, v) {
+      const c = this.ctx, N = this.n;
+      const f = hz(m);
+      const src = c.createGain();
+      const from = this.prevLead && Math.abs(this.prevLead - m) <= 7 ? hz(this.prevLead) : f;
+      const lfo = c.createOscillator(); lfo.frequency.value = 5.2;
+      const lfoG = c.createGain();
+      lfoG.gain.setValueAtTime(0, t);
+      lfoG.gain.linearRampToValueAtTime(f * 0.01, t + Math.min(0.4, dur));
+      lfo.connect(lfoG);
+      const oscs = [];
+      for (const [type, det, gain] of [['sawtooth', -6, 0.6], ['square', 6, 0.35]]) {
+        const o = c.createOscillator(); o.type = type; o.detune.value = det;
+        o.frequency.setValueAtTime(from, t);
+        o.frequency.exponentialRampToValueAtTime(f, t + 0.05);
+        lfoG.connect(o.frequency);
+        const og = c.createGain(); og.gain.value = gain;
+        o.connect(og).connect(src);
+        oscs.push(o);
+      }
+      const g = c.createGain();
+      this.env(g, t, 0.015, v * 2.1, 0.2, 0.8, 0.12, t + dur + 0.08);
+      const vow = FORMANTS[TB_VOWELS[(this.tbIdx = (this.tbIdx || 0) + 1) % TB_VOWELS.length]];
+      [[7, 1], [11, 0.6], [14, 0.35]].forEach(([q, level], i) => {
+        const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+        bp.frequency.setValueAtTime(FORMANTS.u[i], t);
+        bp.frequency.exponentialRampToValueAtTime(vow[i], t + Math.min(0.12, dur * 0.5));
+        const bg = c.createGain(); bg.gain.value = level;
+        src.connect(bp).connect(bg).connect(g);
+      });
+      g.connect(N.lead);
+      const rs = c.createGain(); rs.gain.value = 0.3; g.connect(rs).connect(N.verbIn);
+      const ds = c.createGain(); ds.gain.value = 0.25; g.connect(ds).connect(N.delayIn);
+      const end = t + dur + 0.2;
+      lfo.start(t); lfo.stop(end);
+      for (const o of oscs) { o.start(t); o.stop(end); }
+    }
+
     hook(t, h, tag) {
       const c = this.ctx, N = this.n;
       const src = c.createBufferSource();
@@ -1316,7 +1480,8 @@
       const ds = c.createGain(); ds.gain.value = tag === 'drop-in' ? 0.15 : 0.32; g.connect(ds).connect(N.delayIn);
       src.start(t, h.onset);
       src.stop(t + h.dur + 0.2);
-      this.marks.push({ t, type: 'vocal', text: h.text });
+      this.busyUntil = Math.max(this.busyUntil || 0, t + h.dur);
+      this.mark({ t, type: 'vocal', text: h.text });
     }
 
     chopNote(t, clip, m, dur, v) {
@@ -1531,7 +1696,8 @@
       // the lead line steps back while the robot sings
       N.lead.gain.setTargetAtTime(0.4, t, 0.05);
       N.lead.gain.setTargetAtTime(0.9, end, 0.2);
-      this.marks.push({ t, type: 'vocal', text: clip.text });
+      this.busyUntil = Math.max(this.busyUntil || 0, end);
+      this.mark({ t, type: 'vocal', text: clip.text });
     }
 
     // ---- weather -------------------------------------------------------------------
@@ -1589,9 +1755,16 @@
         if (m.type === 'section') this.curSection = m;
         if (m.type === 'drop') { this.lastDrop = m.t; this.lastDropFinal = m.final; ND.bus.emit('drop', m); }
         if (m.type === 'track') { this.shownTrack = m.track; this.trackShownAt = now; ND.bus.emit('track', m.track); }
+        if (m.type === 'talk') this.talk = m;
       }
       const drop = this.lastDrop != null ? Math.exp(-(now - this.lastDrop) / (this.lastDropFinal ? 1.4 : 0.9)) : 0;
-      return { playing: true, kick, drop, energy: this.curSection ? this.curSection.energy : 0, section: this.curSection && this.curSection.name, track: this.shownTrack, trackAge: now - (this.trackShownAt || -99) };
+      let talk = null;
+      if (this.talk) {
+        const age = now - this.talk.t, clip = this.talk.clip;
+        if (age < clip.dur + 0.6) talk = { mouth: age < clip.dur ? clip.env[Math.floor(age * 40)] || 0 : 0, cam: this.talk.cam, age, left: clip.dur - age, text: clip.text };
+        else this.talk = null;
+      }
+      return { playing: true, kick, drop, energy: this.curSection ? this.curSection.energy : 0, section: this.curSection && this.curSection.name, track: this.shownTrack, trackAge: now - (this.trackShownAt || -99), talk };
     }
 
     // ---- offline render (tests / previews) -------------------------------------------------

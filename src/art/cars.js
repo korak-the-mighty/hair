@@ -75,26 +75,70 @@
     '...cwbbbbbbbbbbBB.',
     '..cwbbbwbbbbbbbbBB',
   ];
+  // Talking in profile: the lips part at the front of the face.
+  const DRIVER_TALK = [
+    { 12: '.mSSssssszzzhhdddk' },
+    { 12: '.mmSssssszzzhhdddk', 13: '..mSsssszzzzhhddk.' },
+  ];
+  // Turned to the camera: shades, a grin, the mullet framing the face.
+  const DRIVER_CAM = [
+    '.....kkkkkkk......',
+    '...kkhHHHHHhkk....',
+    '..khHHHhhhhhhhk...',
+    '.khHhhhhhhhhhhdk..',
+    '.khhhhhhhhhhhhddk.',
+    'khhhSSSSSSShhhdddk',
+    'khhSSSSSSSSShhdddk',
+    'khSSSSSSSSSSShdddk',
+    'khGGGGGGGGGGGhdddk',
+    'khGgGGGsGgGGGhdddk',
+    'khSSSSSsSSSSShdddk',
+    'khSSSSszsSSSShdddk',
+    '.hSSSSSSSSSSShdddk',
+    '.hSSSlllllSSShddk.',
+    '.hsSSSSSSSSSshdddk',
+    '..hzsssssssszhdddk',
+    '...hzzzzzzzzhhddk.',
+    '....nnnnnnnhhdddk.',
+    '....cwnnnnnbhddk..',
+    '...cwbbbbbbbbbbBB.',
+    '..cwbbbwbbbbbbbbBB',
+  ];
+  const DRIVER_CAM_TALK = [
+    {},
+    { 13: '.hSSlTTTTTlSShddk.' },
+    { 13: '.hSSlTTTTTlSShddk.', 14: '.hsSSlmmmlSSshdddk' },
+  ];
   const DRIVER_PAL = {
     H: rgb('#fff2b0'), h: rgb('#f2c662'), d: rgb('#c48c36'), k: rgb('#7a4e22'),
     S: rgb('#f8c6a6'), s: rgb('#e49c7c'), z: rgb('#b06a54'), e: rgb('#c4705a'), n: rgb('#a8624e'),
     G: rgb('#0c0a14'), g: rgb('#ff7ad8'),
     c: rgb('#e4f2ff'), w: rgb('#ffffff'), b: rgb('#96c2f0'), B: rgb('#5c80bc'),
+    l: rgb('#d07a6a'), T: rgb('#fff8ee'), m: rgb('#5a1a24'),
   };
   const DRIVER_O = [144, 5];
 
   function genDriver() {
     const w = DRIVER[0].length, h = DRIVER.length;
-    const pb = new ND.PB(w, h);
-    DRIVER.forEach((row, y) => {
-      if (row.length !== w) throw new Error('driver row ' + y + ' has length ' + row.length);
-      [...row].forEach((ch, x) => {
-        if (ch === '.') return;
-        const c = DRIVER_PAL[ch];
-        pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+    const draw = (rows, over = {}) => {
+      const pb = new ND.PB(w, h);
+      rows.forEach((base, y) => {
+        const row = over[y] || base;
+        if (row.length !== w) throw new Error('driver row ' + y + ' has length ' + row.length);
+        [...row].forEach((ch, x) => {
+          if (ch === '.') return;
+          const c = DRIVER_PAL[ch];
+          pb.set(x, y, ND.pack(c[0], c[1], c[2]));
+        });
       });
-    });
-    return { c: pb.canvas(), x: DRIVER_O[0], y: DRIVER_O[1] };
+      return pb.canvas();
+    };
+    return {
+      c: draw(DRIVER),
+      talk: DRIVER_TALK.map((o) => draw(DRIVER, o)),     // mouth half / fully open
+      cam: DRIVER_CAM_TALK.map((o) => draw(DRIVER_CAM, o)), // facing us: closed, grin, open
+      x: DRIVER_O[0], y: DRIVER_O[1],
+    };
   }
 
   // The driver's arm out of the window: sleeve resting on the door sill,
@@ -407,133 +451,267 @@
   }
 
   // ===========================================================================
-  // Traffic — boxy 80s cars at background-lane scale, facing left.
+  // Traffic — 70s–80s American cars at background-lane scale, facing left:
+  // full-size sedans, personal-luxury coupes with padded vinyl roofs, a Trans
+  // Am, a woodie wagon, a square-body pickup, a Checker cab and a cruiser.
+  // Sprite 162 x 48, ground contact on row 47, wheel centres on row 37.
   // ===========================================================================
-  const TW = 162, TH = 48, TG = 47;
-  const PROFILES = {
+  const TW = 162, TH = 48, TG = 47, WY = 37, ARCH = 11.2;
+  const MODELS = {
+    // '77–'90 full-size sedan (Caprice, LTD): flat hood and deck, formal roof
     sedan: {
-      top: [[0, 27], [3, 22], [16, 20], [40, 18.5], [50, 17.5], [60, 8], [64, 6.5], [100, 6.5], [106, 8], [116, 17.5], [146, 18.5], [157, 19.5], [160, 22]],
-      windows: [[[53, 17], [62, 9], [80, 9], [80, 17]], [[83, 9], [99, 9], [104, 11], [112, 17], [83, 17]]],
+      top: [[0, 26], [1, 22], [3, 20.5], [48, 19.5], [51, 18.5], [61, 8.5], [64, 7.8], [101, 7.8], [104, 8.6], [114, 18.6], [117, 19.3], [157, 19.8], [160, 21.5], [161, 26]],
+      wheels: [30, 126], square: 2.6, rocker: 36, belt: 19, trim: 27, bumpers: true,
+      windows: [[[52, 18], [61, 9.4], [81, 9.4], [81, 18]], [[84, 9.4], [98, 9.4], [98, 18], [84, 18]]],
+      doors: [82.5, 111], vinylFrom: 62, heads: [70, 91], wheel: 'cover', ww: true,
     },
+    // personal-luxury coupe (Eldorado, Continental Mark V): endless hood,
+    // padded vinyl roof with an opera window, stand-up hood ornament
     coupe: {
-      top: [[0, 26], [3, 21.5], [20, 19.5], [46, 18], [60, 9], [66, 7], [92, 7], [122, 14.5], [150, 17.5], [158, 19], [160, 22]],
-      windows: [[[53, 17], [62, 10], [84, 9], [84, 17]], [[87, 9], [92, 9], [114, 15.5], [87, 16]]],
+      top: [[0, 26], [1, 22], [3, 20.3], [58, 19.3], [61, 18.3], [71, 8.8], [74, 8.2], [102, 8.2], [106, 9], [117, 18.6], [120, 19.3], [157, 19.8], [160, 21.5], [161, 26]],
+      wheels: [34, 126], square: 2.3, rocker: 36, belt: 19, trim: 27, bumpers: true,
+      windows: [[[62, 18], [71, 9.8], [98, 9.8], [98, 18]]],
+      doors: [100], vinylFrom: 72, opera: [105, 12.5], heads: [84], wheel: 'wire', ww: true, ornament: true,
     },
+    // '77–'81 Trans Am: beak nose, shaker scoop, long fastback glass, ducktail
+    muscle: {
+      top: [[0, 29], [2, 25.5], [7, 23], [52, 21.5], [55, 20.5], [69, 11], [72, 10.3], [89, 10.3], [93, 11], [127, 19.5], [150, 19.8], [151, 17.4], [159, 17.2], [161, 21], [161, 28]],
+      wheels: [31, 124], square: 2, rocker: 35.5, belt: 20.5,
+      windows: [[[56, 20], [69, 11.8], [88, 11.8], [88, 20]], [[91, 12.2], [93, 12.2], [118, 19.6], [91, 19.6]]],
+      doors: [90], heads: [76], wheel: 'snowflake', scoop: [30, 43], airdam: true, stripe: true,
+    },
+    // woodie wagon (Country Squire): the long roof, wood-grain sides, a roof rack
     wagon: {
-      top: [[0, 27], [3, 22], [16, 20], [40, 18.5], [50, 17.5], [60, 8], [64, 6.5], [146, 6.5], [152, 9], [156, 18.5], [160, 22]],
-      windows: [[[53, 17], [62, 9], [80, 9], [80, 17]], [[83, 9], [110, 9], [110, 17], [83, 17]], [[113, 9], [144, 9], [148, 12], [150, 17], [113, 17]]],
+      top: [[0, 26], [1, 22], [3, 20.5], [48, 19.5], [51, 18.5], [61, 8.5], [64, 7.8], [153, 7.8], [157, 8.6], [159, 11], [160, 20], [161, 26]],
+      wheels: [30, 128], square: 2.6, rocker: 36, belt: 19, trim: 27, bumpers: true,
+      windows: [[[52, 18], [61, 9.4], [81, 9.4], [81, 18]], [[84, 9.4], [108, 9.4], [108, 18], [84, 18]], [[112, 9.4], [150, 9.4], [154, 11], [155, 18], [112, 18]]],
+      doors: [82.5, 110], heads: [70, 94], wheel: 'cover', ww: true, wood: true, rack: [70, 148],
+    },
+    // square-body pickup (C10): high hood, short cab, open bed, two-tone
+    pickup: {
+      top: [[0, 25], [1, 20], [3, 18.4], [46, 18], [49, 17], [56, 7.6], [58, 7], [76, 7], [78, 8], [79, 17.5], [158, 17.5], [160, 18.5], [161, 25]],
+      wheels: [30, 124], square: 2.8, rocker: 35, belt: 17, trim: 26, bumpers: true,
+      windows: [[[50, 16.5], [56.5, 8.2], [75, 8.2], [75, 16.5]]],
+      doors: [79.5], heads: [67], wheel: 'rally', twoTone: true, bed: [81, 157],
+    },
+    // Checker Marathon: the rounded 50s body that never changed, tall roof
+    checker: {
+      top: [[0, 27], [1, 22], [4, 19.6], [10, 18.8], [42, 19], [45, 18], [55, 7.8], [59, 6.8], [104, 6.8], [108, 7.8], [117, 18.2], [124, 19], [152, 19.3], [158, 20.5], [161, 24], [161, 27]],
+      wheels: [32, 126], square: 2, rocker: 36, belt: 18.5, trim: 27, bumpers: true,
+      windows: [[[46, 17.6], [55.5, 8.6], [80, 8.6], [80, 17.6]], [[83, 8.6], [103, 8.6], [107, 10], [113, 17.6], [83, 17.6]]],
+      doors: [81.5, 115], heads: [68, 94], wheel: 'dogdish',
     },
   };
-  const TRAFFIC_COLS = [rgb('#7a1424'), rgb('#b8bccc'), rgb('#1a1822'), rgb('#1c2a58'), rgb('#1a7078'), rgb('#24483a'), rgb('#5a1a3a'), rgb('#b08a48'), rgb('#3a1a60')];
+  // period paint: earth tones, metallics, two-tone-friendly colours
+  const ERA_COLS = ['#6e2b1e', '#8a5a2b', '#c9a25a', '#5f6b3a', '#2d4a3e', '#1f2f5a', '#8fa7c9', '#e9e0c8',
+    '#b9bcc6', '#7a1424', '#1a1822', '#f0eee8', '#a33b2a', '#3d5f8a', '#4a2f4a'].map(rgb);
+  const VINYLS = ['#f2ecdc', '#e2d4b4', '#5a1420', '#1c181c', '#4a3424'].map(rgb);
+  const MUSCLE_COLS = ['#141218', '#141218', '#e8e8f0', '#9a1c1c', '#c8a24a', '#2a3f7a'].map(rgb);
 
-  function trafficTop(top, x) {
+  function topAt(top, x) {
     if (x <= top[0][0]) return top[0][1];
     for (let i = 1; i < top.length; i++) {
       if (x <= top[i][0]) {
         const a = top[i - 1], b = top[i];
-        return a[1] + ((x - a[0]) / (b[0] - a[0])) * (b[1] - a[1]);
+        return a[1] + ((x - a[0]) / (b[0] - a[0] || 1)) * (b[1] - a[1]);
       }
     }
-    return 22;
+    return top[top.length - 1][1];
+  }
+
+  // Wheels: 4 frames of a spinning 21 px wheel in the car's period style.
+  function genTrafficWheels(style, ww) {
+    const P = (c) => ND.pack(c[0], c[1], c[2]);
+    const sym = { cover: 8, wire: 16, snowflake: 10, dogdish: 5, rally: 6 }[style];
+    const frames = [];
+    for (let f = 0; f < 4; f++) {
+      const pb = new ND.PB(21, 21);
+      for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) {
+        const d = Math.hypot(x - 10, y - 10), a = Math.atan2(y - 10, x - 10);
+        if (d > 10.1) continue;
+        const lit = 0.5 - 0.5 * Math.cos(a + 2.3); // lit from the upper left
+        const spin = a - (f / 4) * ((Math.PI * 2) / sym);
+        const rimR = style === 'snowflake' ? 7.2 : 6.4;
+        let c;
+        if (d > 7.9) c = ND.mix(rgb('#0c0a10'), rgb('#2e2a36'), lit * 0.8);
+        else if (d > rimR) {
+          c = ww && d > 6.5 ? ND.mix(rgb('#b8b4c6'), rgb('#f6f4fa'), lit) : ND.mix(rgb('#141018'), rgb('#302a3a'), lit);
+          // raised white letters on the muscle car
+          if (style === 'snowflake' && d > 7.4 && Math.cos(spin * 24) > 0.8 && Math.sin(a) < -0.2) c = rgb('#d8d4e0');
+        } else if (style === 'wire') {
+          c = ND.mix(rgb('#3a3848'), rgb('#5a5870'), lit);
+          if (Math.abs(Math.sin(spin * 8)) < 0.3 || d > 5.7) c = ND.mix(rgb('#9a9ab4'), rgb('#f2f2fa'), lit);
+          if (d < 1.9) c = rgb('#e8d890'); // knock-off spinner
+        } else if (style === 'snowflake') {
+          c = Math.cos(spin * 10) > 0.05 || d < 2.2 || d > 6.4 ? ND.mix(rgb('#8a6a2a'), rgb('#f0d27a'), lit) : rgb('#241a14');
+        } else if (style === 'dogdish') {
+          c = ND.mix(rgb('#1a1822'), rgb('#3a3648'), lit);
+          if (d < 3.4) c = ND.mix(rgb('#8c8ca4'), rgb('#f0f0f8'), lit);
+          else if (d > 4.3 && d < 5 && Math.cos(spin * 5) > 0.85) c = rgb('#56526a');
+        } else if (style === 'rally') {
+          c = ND.mix(rgb('#6a6c7c'), rgb('#b4b6c6'), lit);
+          if (d > 5.5) c = ND.mix(rgb('#a0a0b8'), rgb('#f4f4fa'), lit);
+          else if (d > 2.6 && d < 4.8 && Math.cos(spin * 6) > 0.6) c = rgb('#24222e');
+          if (d < 1.6) c = rgb('#d02a34');
+        } else {
+          // full wheel cover with radial fins
+          c = ND.mix(rgb('#8a8aa4'), rgb('#eaeaf6'), lit);
+          if (d > 2.4 && d < 5.7 && Math.cos(spin * 8) > 0.55) c = ND.mix(c, rgb('#4a4860'), 0.6);
+          if (d > 5.7) c = ND.mix(c, rgb('#5a5870'), 0.4);
+          if (d < 1.8) c = rgb('#f4f0e0');
+        }
+        pb.set(x, y, P(c));
+      }
+      frames.push(pb.canvas());
+    }
+    return frames;
   }
 
   function genTraffic(seed, opts = {}) {
     const r = ND.rng(seed);
-    const kind = opts.kind || r.pick(['sedan', 'sedan', 'coupe', 'wagon', 'coupe']);
-    const special = opts.special || (r.chance(0.08) ? 'taxi' : r.chance(0.05) ? 'police' : null);
-    const prof = PROFILES[special ? 'sedan' : kind];
-    let base = opts.color || (special === 'taxi' ? rgb('#f0b818') : special === 'police' ? rgb('#16161e') : r.pick(TRAFFIC_COLS));
+    const special = 'special' in opts ? opts.special : r.chance(0.08) ? 'taxi' : r.chance(0.05) ? 'police' : null;
+    const kind = special === 'taxi' ? 'checker' : special === 'police' ? 'sedan' : opts.kind || r.pick(['sedan', 'sedan', 'coupe', 'muscle', 'wagon', 'pickup']);
+    const M = MODELS[kind];
+    let base = opts.color || (special === 'taxi' ? rgb('#f2b21a') : special === 'police' ? rgb('#16161e') : kind === 'muscle' ? r.pick(MUSCLE_COLS) : r.pick(ERA_COLS));
+    const vinyl = M.vinylFrom && !special && (kind === 'coupe' ? r() < 0.85 : r() < 0.35) ? r.pick(VINYLS) : null;
+    const upper = M.twoTone ? rgb('#eeeae0') : null;
     const pb = new ND.PB(TW, TH), gl = new ND.PB(TW, TH);
     const P = (c) => ND.pack(c[0], c[1], c[2]);
-    const wheels = [[32, 37], [128, 37]];
-    const pts = prof.top.slice();
-    pts.push([160, 32], [158, 37], [142, 37.5]);
-    arch(pts, 128, 37, 12.5, 37.5);
-    pts.push([114, 37.5], [46, 37.5]);
-    arch(pts, 32, 37, 12.5, 37.5);
-    pts.push([18, 37.5], [2, 37], [0, 33]);
-    pb.polyFn(pts, (x, y) => {
-      const ty = trafficTop(prof.top, x);
-      const dt = y - ty;
-      let c;
-      if (dt < 1.2) c = ND.mix(ND.scale(base, 1.5), [255, 200, 240], 0.35);
-      else {
-        const t = ND.clamp((y - 17) / 21, 0, 1);
-        c = ND.scale(base, 1.18 - t * 0.62);
-        c = ND.mix(c, [255, 120, 220], 0.08 * (1 - t));
+    const [fx, rx] = M.wheels;
+    const rocker = M.rocker;
+    // wheel openings: round on the older and sportier cars, squarish on the boxes
+    const inArch = (x, y) => {
+      for (const wx of M.wheels) {
+        const dx = Math.abs(x + 0.5 - wx) / ARCH, dy = (WY - y - 0.5) / ARCH;
+        if (dx <= 1 && (dy <= 0 || Math.pow(dx, M.square) + Math.pow(dy, M.square) <= 1)) return true;
       }
-      if (special === 'police' && y > 19 && y < 31 && x > 50 && x < 112) c = ND.scale(rgb('#e8e8f0'), 1.05 - (y - 19) / 40);
+      return false;
+    };
+    const inWindow = (x, y) => M.windows.some((w) => { let inside = false; for (let i = 0, j = w.length - 1; i < w.length; j = i++) { const a = w[i], b = w[j]; if ((a[1] > y) !== (b[1] > y) && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside; } return inside; });
+    const pts = M.top.slice();
+    pts.push([161, rocker - 3], [158, rocker], [3, rocker], [0, rocker - 3]);
+    // ---- paint
+    pb.polyFn(pts, (x, y) => {
+      if (inArch(x, y)) return;
+      const ty = topAt(M.top, x + 0.5), dt = y - ty;
+      let c;
+      if (y < M.belt) c = vinyl && x >= M.vinylFrom ? vinyl : base; // pillars and roof
+      else {
+        const t = ND.clamp((y - M.belt) / (rocker - M.belt), 0, 1);
+        c = upper && y < M.belt + 5 ? upper : base;
+        c = ND.scale(c, 1.16 - t * 0.55);
+        if (y === Math.floor(M.belt) + 1) c = ND.scale(c, 1.25); // the shoulder catches the light
+        c = ND.mix(c, [255, 120, 220], 0.08 * (1 - t));
+        c = ND.mix(c, [110, 190, 255], 0.1 * t);
+      }
+      if (dt < 1.2) c = ND.mix(ND.scale(c, 1.45), [255, 205, 240], 0.3); // lit top edge
+      if (vinyl && x >= M.vinylFrom && y < M.belt && (x * 7 + y * 3) % 5 === 0) c = ND.scale(c, 0.9); // grain
       pb.dset(x, y, c, 255, 8);
     });
-    // chrome trim + bumpers
-    pb.hline(4, 156, 29, P(ND.mix(base, [220, 220, 240], 0.5)));
-    for (let y = 26; y < 35; y++) { pb.set(0, y, P(rgb('#9a9ab0'))); pb.set(1, y, P(rgb('#c8c8d8'))); pb.set(159, y, P(rgb('#9a9ab0'))); pb.set(160, y, P(rgb('#6a6a80'))); }
-    pb.hline(2, 158, 37, P(rgb('#221c2c')));
-    // arches
-    for (const [wx, wy] of wheels) pb.discFn(wx, wy, 12.5, (x, y, d) => { if (y <= 37) pb.set(x, y, P(d > 0.9 ? ND.scale(base, 0.5) : rgb('#0e0a14'))); });
-    // windows with occupants
-    const occupants = r.int(1, 2);
-    prof.windows.forEach((w, wi) => {
-      pb.polyFn(w, (x, y) => {
-        const v = (y - 8) / 10;
-        let c = ND.mix(rgb('#3a3068'), rgb('#120e24'), v);
-        if ((x + y * 2) % 17 < 2) c = ND.mix(c, rgb('#a898d8'), 0.3);
-        pb.set(x, y, P(c));
-      });
-      if (wi < occupants) {
-        const hx = wi === 0 ? 70 : 92, hy = 12;
-        pb.disc(hx, hy, 2.6, P(rgb('#241a2a')));
-        pb.rect(hx - 3, hy + 2, 7, 4, P(rgb('#1e1624')));
-      }
+    // arch interiors
+    for (const wx of M.wheels) pb.discFn(wx, WY, ARCH, (x, y) => { if (y <= rocker && inArch(x, y) && pb.alpha(x, y) === 0) pb.set(x, y, P(rgb('#0e0a14'))); });
+    for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) {
+      if (!inArch(x, y) || y > rocker - 1) continue;
+      if (!inArch(x, y - 1) && pb.alpha(x, y - 1)) pb.set(x, y - 1, P(ND.scale(base, 0.55))); // arch lip
+      pb.set(x, y, P(rgb('#0e0a14')));
+    }
+    // ---- glass, with the people inside
+    pb.polyFn(pts, (x, y) => {
+      if (!inWindow(x + 0.5, y + 0.5)) return;
+      let c = ND.mix(rgb('#3c3270'), rgb('#120e24'), ND.clamp((y - 8) / 11, 0, 1));
+      if ((x + y * 2) % 19 < 2) c = ND.mix(c, rgb('#b0a0e0'), 0.3);
+      pb.set(x, y, P(c));
     });
-    // pillars
-    for (let y = 8; y < 18; y++) { pb.set(81, y, P(ND.scale(base, 0.45))); pb.set(82, y, P(ND.scale(base, 0.6))); }
-    // lights
-    for (let y = 21; y <= 27; y++) for (let x = 155; x <= 160; x++) {
-      const c = rgb('#ff2a3c');
-      pb.set(x, y, P(y === 24 ? ND.scale(c, 0.6) : c));
-      gl.set(x, y, ND.pack(255, 30, 50));
+    for (const hx of M.heads) {
+      const hy = M.belt - 6.5;
+      pb.discFn(hx, hy, 2.6, (x, y) => { if (inWindow(x + 0.5, y + 0.5)) pb.set(x, y, P(rgb('#241a2a'))); });
+      for (let y = Math.round(hy + 2); y < M.belt; y++) for (let x = hx - 3; x <= hx + 3; x++) if (inWindow(x + 0.5, y + 0.5)) pb.set(x, y, P(rgb('#1e1624')));
     }
-    for (let y = 22; y <= 26; y++) for (let x = 0; x <= 2; x++) {
-      pb.set(x, y, P(rgb('#fff6d8')));
-      gl.set(x, y, ND.pack(255, 240, 200));
+    // chrome window sill along the beltline
+    for (let x = 0; x < TW; x++) {
+      const y = Math.floor(M.belt);
+      if (inWindow(x + 0.5, y - 0.5)) pb.set(x, y, P(rgb('#d8d8ea')));
     }
-    pb.set(5, 27, P(rgb('#ffa21e'))); gl.set(5, 27, ND.pack(200, 120, 20));
-    // taxi sign / police bar
+    // ---- body details
+    const chrome = (x, y, k = 1) => pb.set(x, y, P(ND.scale(rgb('#dcdcee'), k)));
+    for (const dx of M.doors) for (let y = Math.ceil(M.belt) + 1; y < rocker - 1; y++) if (!inArch(Math.round(dx), y)) pb.set(Math.round(dx), y, P(ND.scale(base, 0.62)));
+    for (const dx of M.doors) chrome(Math.round(dx) - 4, Math.ceil(M.belt) + 3), chrome(Math.round(dx) - 3, Math.ceil(M.belt) + 3);
+    if (M.trim) for (let x = 6; x < 156; x++) {
+      if (inArch(x, M.trim) || inArch(x, M.trim + 1)) continue;
+      chrome(x, M.trim, 0.95);
+      pb.set(x, M.trim + 1, P(rgb('#2a2434')));
+    }
+    for (let x = 6; x < 156; x++) if (!inArch(x, rocker - 1)) chrome(x, rocker - 1, 0.75); // rocker moulding
+    if (M.opera) pb.discFn(M.opera[0], M.opera[1], 1.8, (x, y) => pb.set(x, y, P(rgb('#bcb4e0'))));
+    if (M.ornament) { chrome(3, 19); chrome(3, 18); pb.set(3, 17, P(rgb('#fff6d8'))); }
+    if (M.rack) {
+      for (let x = M.rack[0]; x <= M.rack[1]; x++) chrome(x, 6, 0.8);
+      for (let x = M.rack[0]; x <= M.rack[1]; x += 13) chrome(x, 7, 0.6);
+    }
+    if (M.bed) { // the open bed: rail on top, the far side's inner wall just visible
+      for (let x = M.bed[0]; x < M.bed[1]; x++) { chrome(x, 17, 0.7); pb.set(x, 16, P(ND.scale(base, 0.5))); }
+    }
+    if (M.wood) { // wood-grain panel with a light surround
+      for (let y = 21; y <= 33; y++) for (let x = 6; x < 156; x++) {
+        if (inArch(x, y) || inArch(x - 1, y) || inArch(x + 1, y) || inArch(x, y + 1)) continue;
+        const edge = y === 21 || y === 33 || x === 6 || x === 155 || inArch(x - 2, y) || inArch(x + 2, y) || inArch(x, y + 2);
+        const grain = Math.sin(x * 0.33 + Math.sin(y * 1.9 + x * 0.05) * 1.6) > 0.35;
+        const c = edge ? rgb('#d4b07a') : ND.mix(rgb('#8a5328'), rgb('#5e3418'), grain ? 0.7 : 0);
+        pb.dset(x, y, ND.scale(c, 1.05 - (y - 21) * 0.025), 255, 6);
+      }
+    }
+    if (M.scoop) { // shaker hood scoop
+      for (let x = M.scoop[0]; x <= M.scoop[1]; x++) for (let y = 19; y <= 21; y++) pb.set(x, y, P(y === 19 ? rgb('#8c8ca4') : rgb('#16121c')));
+    }
+    if (M.airdam) for (let x = 1; x < 24; x++) for (let y = 32; y <= 34; y++) pb.set(x, y, P(rgb('#141018')));
+    if (M.stripe) { // pinstripe, gold on black
+      const sc = base[0] < 60 ? rgb('#e0b44a') : ND.scale(base, 0.5);
+      for (let x = 8; x < 150; x++) if (!inArch(x, M.belt + 2)) pb.set(x, Math.round(M.belt) + 2, P(sc));
+    }
+    // ---- bumpers: chrome with a black rubber strip, wrapping the corners
+    const BUMP = ['#f2f2fa', '#cfd2e6', '#9aa0c0', '#d6d8ec', '#2a2634', '#b0b4cc', '#7c80a0', '#54587a'].map(rgb);
+    if (M.bumpers) for (let i = 0; i < BUMP.length; i++) {
+      for (let x = 0; x <= 5; x++) pb.set(x, 26 + i, P(ND.scale(BUMP[i], 1 - x * 0.03)));
+      for (let x = 155; x <= 161; x++) pb.set(x, 26 + i, P(ND.scale(BUMP[i], 0.9 + (x - 155) * 0.02)));
+    } else for (let y = 27; y <= 31; y++) { pb.set(0, y, P(ND.scale(base, 0.7))); pb.set(161, y, P(ND.scale(base, 0.6))); }
+    // ---- lights (on: it's night)
+    const lamp = (x, y, c, g) => { pb.set(x, y, P(c)); gl.set(x, y, ND.pack(g[0], g[1], g[2])); };
+    const hy = kind === 'muscle' ? 25 : Math.round(topAt(M.top, 2)) + 1;
+    for (let y = hy; y < hy + 4; y++) for (let x = 0; x <= 2; x++) if (y !== hy + 2 || kind === 'muscle') lamp(x, y, rgb('#fff6da'), [255, 240, 200]);
+    if (kind !== 'muscle') lamp(5, hy + 4, rgb('#ffa21e'), [200, 120, 20]); // amber marker
+    const ty0 = Math.max(19, Math.round(topAt(M.top, 159)) + 1);
+    for (let y = ty0; y < 26; y++) for (let x = 158; x <= 161; x++) {
+      const louvre = kind === 'muscle' && y % 2 === 0;
+      lamp(x, y, louvre ? rgb('#5a0c16') : rgb('#ff2a3c'), louvre ? [60, 6, 12] : [255, 30, 50]);
+    }
+    lamp(151, 24, rgb('#e0203a'), [140, 16, 28]); // red side marker
+    // ---- the specials
     let bar = null;
     if (special === 'taxi') {
-      pb.rect(74, 2, 14, 5, P(rgb('#ffe890')));
-      for (let x = 74; x < 88; x++) for (let y = 2; y < 7; y++) gl.set(x, y, ND.pack(200, 170, 70));
+      for (let x = 5; x < 157; x++) for (let y = 23; y <= 24; y++) if (!inArch(x, y)) pb.set(x, y, P(((x >> 1) + y) % 2 ? rgb('#141018') : rgb('#f4f2ea')));
+      pb.rect(76, 2, 14, 5, P(rgb('#ffe890')));
+      for (let x = 76; x < 90; x++) for (let y = 2; y < 7; y++) gl.set(x, y, ND.pack(200, 170, 70));
       const mk = ND.textMask('TAXI', { small: true, gap: 0 });
-      for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x] && y < 5) pb.set(75 + x, 2 + y, P(rgb('#402808')));
+      for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x] && y < 5) pb.set(77 + x, 2 + y, P(rgb('#402808')));
     }
     if (special === 'police') {
-      pb.rect(72, 3, 20, 3, P(rgb('#2a2a3a')));
-      bar = { x: 72, y: 3, w: 20 };
-    }
-    // wheels (4 frames of a simple hubcap)
-    const wheelFrames = [];
-    for (let f = 0; f < 4; f++) {
-      const w = new ND.PB(21, 21);
-      for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) {
-        const d = Math.hypot(x - 10, y - 10), a = Math.atan2(y - 10, x - 10);
-        if (d > 10.4) continue;
-        let c = d > 6.2 ? rgb('#141018') : ND.mix(rgb('#6a6a84'), rgb('#c8c8dc'), 0.5 - 0.5 * Math.cos(a + 2.3));
-        if (d <= 6.2 && d > 3 && Math.cos((a - (f / 4) * (Math.PI / 2)) * 4) > 0.7) c = rgb('#3a3a50');
-        if (d <= 1.4) c = rgb('#2a2a3a');
-        w.set(x, y, P(c));
-      }
-      wheelFrames.push(w.canvas());
+      for (let y = Math.ceil(M.belt) + 1; y < rocker - 1; y++) for (let x = 52; x < 112; x++) if (!inArch(x, y) && y !== M.trim && y !== M.trim + 1) pb.set(x, y, P(ND.scale(rgb('#eeeef4'), 1.05 - (y - M.belt) * 0.02)));
+      const mk = ND.textMask('POLICE', { small: true, gap: 1 });
+      for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x]) pb.set(58 + x, 21 + y, P(rgb('#16161e')));
+      pb.rect(73, 5, 20, 3, P(rgb('#2a2a3a')));
+      chrome(58, 15); chrome(59, 15); // A-pillar spotlight
+      bar = { x: 73, y: 5, w: 20 };
     }
     return {
       body: ND.sprite(pb, gl),
-      wheels,
-      wheelFrames,
+      wheels: [[fx, WY], [rx, WY]],
+      wheelFrames: genTrafficWheels(M.wheel, M.ww && !special),
       bar,
       w: TW,
       h: TH,
       ground: TG,
       special,
+      kind,
     };
   }
 
