@@ -92,6 +92,9 @@
   };
   // Vocoder: filter bands, envelope make-up gain and output level.
   const VOC_BANDS = 18, VOC_GAIN = 12, VOC_OUT = 0.75;
+  // The driver won't bring the same subject up again for this long (seconds):
+  // one lightning remark per storm, not one per strike.
+  const TALK_COOLDOWN = { lightning: 240, storm: 300, rain: 150, window: 400, clear: 150, mist: 150, heli: 200, smoke: 300 };
   // Talk box: first three formants of the vowels it "sings" through, and the
   // closed vowel every note opens from.
   const FORMANTS = { a: [730, 1090, 2440], e: [530, 1840, 2480], i: [300, 2200, 2950], o: [570, 840, 2410], u: [320, 800, 2240] };
@@ -316,6 +319,7 @@
       this.chatter = true; // the driver talks
       this.talkReq = [];
       this.recentTalk = [];
+      this.tagSaid = {};
       this.ctx = null;
       this.enabled = false;
       this.trackIndex = 0;
@@ -612,7 +616,7 @@
       this.startTicker();
       ND.bus.on('lightning', (e) => { this.thunder(e); this.request('lightning', 6); });
       ND.bus.on('weather', (e) => {
-        const tag = { drizzle: 'rain', rain: 'rain', clear: 'clear', mist: 'mist' }[e.phase];
+        const tag = { drizzle: 'rain', rain: 'rain', storm: 'storm', clear: 'clear', mist: 'mist' }[e.phase];
         if (tag) this.request(tag);
       });
       ND.bus.on('heli', () => this.request('heli', 20));
@@ -705,6 +709,9 @@
     // Something happened in the world he might talk about (for a while).
     request(tag, ttl = 12) {
       if (!this.ctx) return;
+      const cool = TALK_COOLDOWN[tag];
+      if (cool && this.ctx.currentTime - (this.tagSaid[tag] ?? -1e9) < cool) return;
+      if (this.talkReq.some((q) => q.tag === tag)) return;
       this.talkReq.push({ tag, until: this.ctx.currentTime + ttl });
     }
 
@@ -735,7 +742,7 @@
       if (s.name === 'build' && sb >= s.bars - 2) return;
       if (!this.clearAhead(t, 2)) return;
       // reactions first (freshest), otherwise the odd musing
-      this.talkReq = this.talkReq.filter((q) => q.until > t);
+      this.talkReq = this.talkReq.filter((q) => q.until > t && t - (this.tagSaid[q.tag] ?? -1e9) >= (TALK_COOLDOWN[q.tag] || 0));
       if (this.nextIdle == null) this.nextIdle = t + 25;
       let tag = null;
       if (this.talkReq.length) tag = this.talkReq.pop().tag;
@@ -744,6 +751,7 @@
       const clip = this.pickTalk(tag);
       if (!clip) return;
       this.say(t, clip, tag === 'camera' || (tag === 'idle' && this.r() < 0.25));
+      this.tagSaid[tag] = t;
       this.nextIdle = t + clip.dur + 35 + this.r() * 50;
     }
 

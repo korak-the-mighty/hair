@@ -348,7 +348,7 @@
       const D = this.D;
       if (!init) {
         this.weather.update();
-        this.rain.update(this.weather, D);
+        this.rain.update(this.weather, D, this.hero);
         this.air.update(this.tick, this.weather);
       }
       for (const l of this.skyLayers) l.update(D);

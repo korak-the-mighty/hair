@@ -242,9 +242,9 @@
       this.drawRoad(R);
       this.drawSplashes(R);
       this.drawTraffic(R);
-      if (this.q >= 2) this.drawRain(R, [0, 1]);
+      if (this.q >= 2) this.drawRain(R, [0, 1, 3], 'back');
       this.drawHero(R);
-      this.drawRain(R, this.q >= 2 ? [2] : [0, 1, 2]);
+      this.drawRain(R, this.q >= 2 ? [2, 3] : [0, 1, 2, 3], this.q >= 2 ? 'front' : null);
       this.drawForeground(R);
       this.drawMist(R, 'front');
       this.post(R);
@@ -751,19 +751,6 @@
           c.fillRect(Math.round(x + p.x), Math.round(y + p.y), k < 0.5 ? 2 : 1, k < 0.25 ? 2 : 1);
         }
       }
-      // raindrops bursting on the roof, hood and rear deck
-      const hits = w.rain.carHits;
-      if (hits.length) {
-        c.globalCompositeOperation = 'lighter';
-        const crowns = this.fx.rings.crowns;
-        for (const hit of hits) {
-          const lx = hit.u * (HW - 4) + 2, ly = ND.HERO.topY(lx);
-          c.globalAlpha = 0.4 * (1 - hit.age / 7);
-          c.drawImage(crowns[hit.age % 3], Math.round(x + lx - 2), Math.round(y + ly - 2 + h.bob - (hit.age < 2 ? 1 : 0)));
-        }
-        c.globalAlpha = 1;
-        c.globalCompositeOperation = 'source-over';
-      }
     }
 
     // "Now playing" card when a new track starts.
@@ -800,7 +787,7 @@
     drawSplashes(R) {
       const sp = this.world.rain.splashes;
       if (!sp.length) return;
-      const c = this.c, rings = this.fx.rings.rings, crowns = this.fx.rings.crowns;
+      const c = this.c, rings = this.fx.rings.rings;
       c.globalCompositeOperation = 'lighter';
       for (const s of sp) {
         const x = Math.round(CX + (R.D - s.P) * s.f);
@@ -808,12 +795,8 @@
         const k = s.age / s.life;
         const ri = Math.min(rings.length - 1, Math.floor(k * (2 + s.f * 4.5)));
         const img = rings[ri];
-        c.globalAlpha = (1 - k) * (0.28 + s.f * 0.14);
+        c.globalAlpha = (1 - k) * (0.34 + s.f * 0.18);
         c.drawImage(img, x - (img.width >> 1), s.y - (img.height >> 1));
-        if (s.crown && s.age < 4) {
-          c.globalAlpha = 0.55 * (1 - s.age / 4);
-          c.drawImage(crowns[s.age % 3], x - 2, s.y - 2 - (s.age < 2 ? 1 : 0));
-        }
       }
       c.globalAlpha = 1;
       c.globalCompositeOperation = 'source-over';
@@ -833,18 +816,25 @@
       l.globalCompositeOperation = 'source-over';
     }
 
-    drawRain(R, which) {
-      const layers = this.world.rain.layers;
+    // Rain in two passes around the hero car: 'back' is everything behind
+    // it, 'front' everything in front of it and landing on it (null: all).
+    drawRain(R, which, pass) {
+      const w = this.world, layers = w.rain.layers;
       const rc = this.rainX;
       let n = 0;
       rc.globalCompositeOperation = 'source-over';
       rc.clearRect(0, 0, W, H);
       const rain = R.weather.v.rain;
+      const inPass = (f) => !pass || (pass === 'back' ? f < 1 : f >= 1);
       for (const i of which) {
         const L = layers[i];
         if (L.sheets) {
           const ox = Math.round((R.tick * L.vx) % W), oy = Math.round((R.tick * L.vy) % H);
           const nSheets = this.q >= 2 ? 3 : 1;
+          rc.save();
+          rc.beginPath();
+          rc.rect(0, 0, W, L.ground); // the sheet ends where it reaches the ground
+          rc.clip();
           for (let k = 0; k < nSheets; k++) {
             const a = (nSheets === 3 ? ND.clamp(rain * 3 - k, 0, 1) : Math.min(1, rain * 1.6)) * L.a;
             if (a < 0.02) continue;
@@ -856,16 +846,39 @@
             rc.drawImage(img, ox, oy);
             n++;
           }
+          rc.restore();
           continue;
         }
         if (!L.p.length) continue;
         rc.globalAlpha = L.a;
         for (const p of L.p) {
+          if (L.impact && !inPass(p.f)) continue;
           const s = L.sprites[p.s];
           rc.drawImage(s.c, Math.round(p.x - s.ox), Math.round(p.y - s.oy));
           n++;
         }
       }
+      // splashes: a crown where the drop lands, then droplets thrown up
+      const { crowns, bigCrowns } = this.fx.rings;
+      const drop = (x, y, big, a) => { rc.globalAlpha = a; rc.fillRect(Math.round(x), Math.round(y), big ? 2 : 1, 1); };
+      rc.fillStyle = '#fff';
+      for (const s of w.rain.splashes) {
+        if (!inPass(s.f)) continue;
+        const x = CX + (R.D - s.P) * s.f;
+        if (x < -12 || x > W + 12) continue;
+        const big = s.big || s.f > 1.25;
+        if (s.crown && s.age < 4) {
+          const img = (big ? bigCrowns : crowns)[s.age % 3];
+          rc.globalAlpha = 0.95 * (1 - s.age / 4);
+          rc.drawImage(img, Math.round(x - (img.width >> 1)), s.y - img.height - (s.age < 2 ? 1 : 0));
+          n++;
+        }
+        if (s.drops && s.age < 9) for (const [vx, vy] of s.drops) {
+          const dy = vy * s.age * (0.6 + s.f * 0.4) + 0.16 * s.age * s.age;
+          if (dy < 0) drop(x + vx * s.age * (0.6 + s.f * 0.4), s.y - 1 + dy, big, 0.9 * (1 - s.age / 9));
+        }
+      }
+
       if (!n) return;
       rc.globalAlpha = 1;
       if (this.q < 1) {
@@ -888,6 +901,31 @@
       c.globalCompositeOperation = 'lighter';
       c.drawImage(this.rainC, 0, 0);
       c.globalCompositeOperation = 'source-over';
+    }
+
+    // Drops bursting on the hero car's roof, hood and deck. Light spray would
+    // vanish on the white paint, so the water is cool blue with a glint.
+    drawCarRain() {
+      const w = this.world, h = w.hero, c = this.c, hx = h.x + (h.dx || 0);
+      const CROWN = [[[0, -1], [-1, 0], [1, 0], [0, 0]], [[-2, -1], [2, -1], [-1, -1], [1, -1], [-1, 0], [1, 0]], [[-3, -2], [3, -2], [-2, -1], [2, -1]]];
+      for (const hit of w.rain.carHits) {
+        const x = Math.round(hx + hit.lx), y = Math.round(h.y + ND.HERO.topY(hit.lx) + h.bob) - 1;
+        if (hit.age < 3) {
+          c.globalAlpha = 0.9 - hit.age * 0.25;
+          c.fillStyle = '#5a64b8';
+          for (const [dx, dy] of CROWN[hit.age]) c.fillRect(x + dx, y + dy, 1, 1);
+          if (hit.age === 0) { c.fillStyle = '#ffffff'; c.fillRect(x, y - 1, 1, 1); }
+        }
+        c.fillStyle = '#8c96e0';
+        for (const [vx, vy] of hit.drops) {
+          const dy = vy * hit.age + 0.18 * hit.age * hit.age;
+          if (dy < 0.5) {
+            c.globalAlpha = 0.9 * (1 - hit.age / 9);
+            c.fillRect(Math.round(x + vx * hit.age), Math.round(y + dy), 1, 1);
+          }
+        }
+      }
+      c.globalAlpha = 1;
     }
 
     drawMist(R, which) {
@@ -973,6 +1011,8 @@
       c.drawImage(v, 0, H - vt, W, vt, 0, H - vt, W, vt);
       c.drawImage(v, 0, vt, vs, H - 2 * vt, 0, vt, vs, H - 2 * vt);
       c.drawImage(v, W - vs, vt, vs, H - 2 * vt, W - vs, vt, vs, H - 2 * vt);
+      // rain bursting on the car (after bloom, which would wash it out on the white paint)
+      this.drawCarRain();
       // cigarette smoke and sparks (after bloom: smoke isn't a light source)
       const h = this.world.hero, so = this.smokeAt;
       if (so && h.smoke.length) {

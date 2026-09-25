@@ -104,6 +104,19 @@
     { "id": "drv-windows-down", "text": "Windows down. Volume up.", "tags": ["clear"], "style": "hype" },
     { "id": "drv-fog", "text": "Fog rolling in. Mysterious. I like it.", "tags": ["mist"], "style": "cool" },
     { "id": "drv-chopper", "text": "Chopper's out tonight.", "tags": ["heli"], "style": "cool" },
-    { "id": "drv-spotlight", "text": "Somebody's getting the spotlight tonight.", "tags": ["heli"], "style": "aside" }
+    { "id": "drv-spotlight", "text": "Somebody's getting the spotlight tonight.", "tags": ["heli"], "style": "aside" },
+    { "id": "drv-light-show", "text": "Now THAT's a light show!", "tags": ["lightning"], "style": "hype" },
+    { "id": "drv-felt-that", "text": "Whoa... felt that one in my chest.", "tags": ["lightning"], "style": "cool" },
+    { "id": "drv-strobe", "text": "Mother Nature's got the strobe lights out.", "tags": ["lightning"], "style": "cool" },
+    { "id": "drv-close-one", "text": "Oh! That was close!", "tags": ["lightning"], "style": "hype" },
+    { "id": "drv-zeus", "text": "Zeus is on the dance floor tonight.", "tags": ["lightning"], "style": "aside" },
+    { "id": "drv-sky-bass", "text": "Somebody turned up the bass in the sky!", "tags": ["lightning"], "style": "hype" },
+    { "id": "drv-love-a-storm", "text": "[laughs] I love a good storm.", "tags": ["lightning"], "style": "hype" },
+    { "id": "drv-flash", "text": "Flash! Smile for the camera.", "tags": ["lightning"], "style": "aside" },
+    { "id": "drv-storm-coming", "text": "Here comes the storm. Perfect night for it.", "tags": ["storm"], "style": "cool" },
+    { "id": "drv-hold-on-hair", "text": "Storm's rolling in. Hold on to your hair.", "tags": ["storm"], "style": "aside" },
+    { "id": "drv-listen-rain", "text": "Listen to that rain.", "tags": ["rain"], "style": "cool" },
+    { "id": "drv-rain-radio", "text": "Rain on the glass, music on the radio. Perfect.", "tags": ["rain"], "style": "cool" },
+    { "id": "drv-city-shining", "text": "The whole city's shining now.", "tags": ["rain"], "style": "hype" }
   ]
 }

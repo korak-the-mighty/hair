@@ -105,6 +105,8 @@ window going up, lightning, the helicopter, his cigarette going back out:
 
 He waits for a clear moment, so he never talks over the robot, the hooks
 or the silent beat, and the music dips under his voice like a radio DJ's.
+He doesn't harp on a subject either: one remark per storm, not one per
+lightning strike.
 His mouth follows the loudness of his voice. `V` turns him off.
 
 The lines are listed in `tools/vocals.json`, each tagged with the moment it
@@ -153,8 +155,10 @@ standard 16:9 size, so pixels stay perfectly square and crisp: 2× for 720p,
 - `src/world.js`: the endless world. Parallax sequences spawn to the left
   and retire off the right. Building art is generated in small time slices
   between frames, so nothing stalls the frame.
-- `src/weather.js`: the weather director, three depths of rain (lit by the
-  neon around it), splashes, ripple rings, lightning bolts and flashes, mist and overcast.
+- `src/weather.js`: the weather director; rain in four depths, lit by the
+  neon around it, that lands where it should: on the road at its own depth
+  (a crown, droplets thrown up, a ripple ring) or bursting on the hero car's
+  roof, hood and deck; lightning bolts and flashes, mist and overcast.
 - `src/fx.js`: the volumetric lamp cones, headlight beams, film grain, umbrellas,
   and aircraft (planes, and a helicopter with a searchlight).
 - `src/audio.js`: the generative soundtrack (composer and melody writer,

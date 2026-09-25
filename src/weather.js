@@ -136,11 +136,15 @@
   // the world, so our leftward motion slants it by each layer's parallax.
   // ---------------------------------------------------------------------------
   // Far and mid rain are scrolling, seamlessly tiling sheets (3 densities
-  // each, stacked as the rain gets heavier); near rain is individual drops.
+  // each, stacked as the rain gets heavier) that end where they reach the
+  // ground; near rain is individual drops that splash where they land.
+  // The impact layer falls at the car's depth: its drops land on the road
+  // around the car at their own depth, or burst on the car itself.
   const LAYERS = [
-    { f: 0.3, sheet: 110, len: 5, fall: 7, a: 0.5 },
-    { f: 0.8, sheet: 70, len: 10, fall: 11, a: 0.7 },
-    { f: 1.7, max: 70, len: 19, fall: 17, a: 0.95, floor: [300, 390] },
+    { f: 0.3, sheet: 110, len: 5, fall: 7, a: 0.5, ground: 232 },
+    { f: 0.8, sheet: 70, len: 10, fall: 11, a: 0.7, ground: 262 },
+    { f: 1.7, max: 70, len: 19, fall: 17, a: 0.95, floor: [318, 372], splash: true },
+    { f: 1, max: 130, len: 12, fall: 14, a: 0.85, impact: true },
   ];
 
   function rainSheet(seed, n, dx, dy, len) {
@@ -191,47 +195,69 @@
     }
     spawn(L, top) {
       const r = this.r;
-      const slope = L.vx / L.vy;
-      return {
-        x: r.range(-slope * H - 20, W + 10),
-        y: top ? r.range(-40, -2) : r.range(-40, H),
-        floor: r.range(L.floor[0], L.floor[1]),
-        s: r.int(0, 2),
-      };
+      const p = { f: L.f, y: top ? r.range(-40, -2) : r.range(-40, H), s: r.int(0, 2) };
+      if (L.impact) {
+        p.f = r() < 0.5 ? 1 : r.range(0.86, 1.45); // f = 1: the car's own depth
+        p.floor = ND.yAt(p.f) + r.range(-1, 1);
+      } else p.floor = r.range(L.floor[0], L.floor[1]);
+      p.x = r.range(-((p.f * SPEED) / L.vy) * H - 20, W + 10);
+      return p;
     }
-    update(w, D) {
-      const rain = w.v.rain;
+    // Droplets thrown up when a drop bursts on the car: [vx, vy] per droplet.
+    bounce() {
+      const r = this.r;
+      return [[r.range(-1.4, -0.3), -r.range(0.7, 1.6)], [r.range(0.3, 1.4), -r.range(0.6, 1.4)], [r.range(-0.4, 0.4), -r.range(1, 1.9)]];
+    }
+    // A drop hits the ground: a crown, droplets thrown up, and a ripple ring.
+    splash(x, y, f, big) {
+      const r = this.r, drops = [];
+      for (let i = 0, n = big ? 3 : r.int(1, 3); i < n; i++) drops.push([r.range(-1.2, 1.2) * (big ? 1.5 : 1), -r.range(0.7, 1.7) * (big ? 1.4 : 1)]);
+      this.splashes.push({ P: this.D - (x - CX) / f, y, f, age: 0, life: r.int(12, 20), crown: true, big, drops });
+    }
+    update(w, D, hero) {
+      const rain = w.v.rain, r = this.r;
+      this.D = D;
+      // age what's already splashing, so this tick's new splashes show from their first frame
+      for (const s of this.splashes) s.age++;
+      this.splashes = this.splashes.filter((s) => s.age < s.life);
+      for (const h of this.carHits) h.age++;
+      this.carHits = this.carHits.filter((h) => h.age < 9);
+      // where the car's body is, to land drops on it
+      const hx = hero ? hero.x + (hero.dx || 0) : 0;
+      const carTop = (x) => {
+        const lx = x - hx;
+        return hero && lx > 2 && lx < ND.HERO.W - 3 ? hero.y + ND.HERO.topY(lx) + hero.bob : null;
+      };
       for (const L of this.layers) {
         if (L.sheets) continue;
         const want = Math.floor(L.max * rain);
         while (L.p.length < want) L.p.push(this.spawn(L, false));
         for (let i = L.p.length - 1; i >= 0; i--) {
           const p = L.p[i];
-          p.x += L.vx;
+          p.x += p.f * SPEED;
           p.y += L.vy;
-          if (p.y > p.floor) {
+          let floor = p.floor, car = false;
+          if (L.impact && p.f === 1) {
+            const top = carTop(p.x);
+            if (top != null && top < floor) { floor = top; car = true; }
+          }
+          if (p.y > floor) {
+            if (car) this.carHits.push({ lx: p.x - hx, age: 0, drops: this.bounce() });
+            else if (L.splash || L.impact) this.splash(p.x, floor, p.f, !!L.splash);
             if (L.p.length > want) { L.p.splice(i, 1); continue; }
             Object.assign(p, this.spawn(L, true));
           }
         }
       }
-      // splashes / ripple rings on the wet ground
-      const r = this.r;
-      const n = rain * 7;
+      // the far lane and the sidewalk, where the rain sheets land
+      const n = rain * 3;
       for (let k = 0; k < Math.floor(n) + (r() < n % 1 ? 1 : 0); k++) {
-        const onWalk = r() < 0.18;
-        const y = onWalk ? r.int(Y.BUILD + 3, Y.CURB - 1) : r.int(Y.CURB + 4, H + 6);
-        const f = ND.fAt(y);
-        const x = r.range(-10, W + 10);
-        this.splashes.push({ P: D - (x - CX) / f, y, f, age: 0, life: r.int(12, 20), crown: r() < 0.6 });
+        const y = r() < 0.4 ? r.int(Y.BUILD + 3, Y.CURB - 1) : r.int(Y.CURB + 4, 268);
+        this.splash(r.range(-10, W + 10), y, ND.fAt(y), false);
       }
-      for (const s of this.splashes) s.age++;
-      this.splashes = this.splashes.filter((s) => s.age < s.life);
-      // raindrops hitting the hero car's roof, hood and deck
-      const m = rain * 1.6;
-      for (let k = 0; k < Math.floor(m) + (r() < m % 1 ? 1 : 0); k++) this.carHits.push({ u: r.range(0.02, 0.97), age: 0 });
-      for (const h of this.carHits) h.age++;
-      this.carHits = this.carHits.filter((h) => h.age < 7);
+      // more drops on the car than the impact layer alone brings
+      const m = rain * 1.8;
+      for (let k = 0; k < Math.floor(m) + (r() < m % 1 ? 1 : 0); k++) this.carHits.push({ lx: r.range(4, ND.HERO.W - 5), age: 0, drops: this.bounce() });
     }
   }
 
@@ -249,16 +275,15 @@
       }
       rings.push(pb.canvas());
     }
-    const crowns = [
-      ['.#.#.', '#...#'],
-      ['#.#.#', '.....'],
-      ['..#..', '.#.#.'],
-    ].map((rows) => {
-      const pb = new ND.PB(5, 2);
+    const sprite = (rows) => {
+      const pb = new ND.PB(rows[0].length, rows.length);
       rows.forEach((row, y) => [...row].forEach((ch, x) => ch === '#' && pb.set(x, y, ND.pack(255, 255, 255))));
       return pb.canvas();
-    });
-    return { rings, crowns };
+    };
+    const crowns = [['.#.#.', '#...#'], ['#.#.#', '.....'], ['..#..', '.#.#.']].map(sprite);
+    // close to the camera the crowns are bigger
+    const bigCrowns = [['...#...', '.#...#.', '#..#..#'], ['.#.#.#.', '#.....#', '.......'], ['#..#..#', '.#...#.', '.......']].map(sprite);
+    return { rings, crowns, bigCrowns };
   }
 
   // Tileable drifting mist band.
