@@ -32,8 +32,18 @@ same thing bundled into one file you can copy anywhere (rebuild it with
 | `Space` | Pause |
 | `D` | FPS / frame-time stats |
 
+**On a phone or tablet** there are touch controls instead: hold the ▼ / ▲
+pedals (bottom right) to brake and accelerate, and the ☰ button (top right)
+opens music, next track, weather, driver talk, titles, letterbox, pause,
+fullscreen and record. Held sideways the picture fills the screen (a thin
+strip is cropped off the top and bottom); held upright it shows in full,
+with a hint to turn the phone.
+
+Every visit starts a fresh soundtrack, so the first track and style are
+random.
+
 URL options:
-- `?seed=1234` picks a different city.
+- `?seed=1234` picks a different city, and fixes the soundtrack too.
 - `?weather=clear|drizzle|rain|storm|mist` locks the weather. By default a
   director cycles it every few minutes, and storms bring lightning.
 - `?q=0|1|2` forces a quality level. The default is automatic.

@@ -773,7 +773,7 @@
       const a = age < 0.6 ? age / 0.6 : age > 6.5 ? Math.max(0, (8 - age) / 1.5) : 1;
       if (a <= 0) return;
       const c = this.c, s = this.titleCache.spr;
-      const y = H - 44 - Math.round(this.letter);
+      const y = H - 44 - Math.max(Math.round(this.letter), this.cropY || 0); // clear of a phone's crop
       c.globalAlpha = a;
       c.drawImage(s.c, 14, y);
       c.globalCompositeOperation = 'lighter';

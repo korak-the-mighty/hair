@@ -2,10 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Neon Drive</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    body { height: 100dvh; }
     body { display: flex; align-items: center; justify-content: center; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #f0d8ff; }
     #screen { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
     body.idle, body.idle #screen { cursor: none; }
@@ -24,6 +29,27 @@
     #rec.show { display: block; }
     #stats { position: fixed; right: 12px; top: 10px; color: #9fffd0; background: rgba(0,0,0,.5); padding: 3px 7px; display: none; }
     #stats.show { display: block; }
+    /* touch controls (phones, tablets) */
+    #touch { display: none; }
+    body.touch { touch-action: none; -webkit-user-select: none; user-select: none; }
+    body.touch #touch { display: block; }
+    body.touch #hud { display: none; }
+    body.touch #rec { right: auto; left: max(12px, env(safe-area-inset-left)); }
+    #touch button { font: inherit; color: #ffd6f6; background: rgba(10, 4, 24, .55); border: 1px solid rgba(255, 90, 210, .45); border-radius: 10px; touch-action: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+    #pedals { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; gap: 14px; transition: opacity .6s; }
+    #pedals button { width: 66px; height: 66px; border-radius: 50%; display: grid; place-items: center; color: #6ae0ff; border-color: rgba(106, 224, 255, .5); }
+    #pedals button svg { width: 26px; height: 26px; fill: currentColor; pointer-events: none; }
+    #pedals button.on { background: rgba(255, 60, 200, .4); color: #fff; box-shadow: 0 0 16px #ff3cc8; }
+    #menuBtn { position: fixed; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); width: 44px; height: 44px; display: grid; place-items: center; transition: opacity .6s; }
+    #menuBtn svg { width: 20px; height: 20px; fill: currentColor; pointer-events: none; }
+    #menu { position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 52px); right: max(12px, env(safe-area-inset-right)); display: none; grid-template-columns: 1fr 1fr; gap: 6px; }
+    #menu.open { display: grid; }
+    #menu button { padding: 10px 12px; min-width: 104px; font-size: 11px; letter-spacing: .15em; text-transform: uppercase; }
+    body.touch.idle #pedals, body.touch.idle #menuBtn { opacity: .3; }
+    body.touch.nohud #pedals { opacity: 0; pointer-events: none; }
+    #rotate { display: none; position: fixed; left: 0; right: 0; bottom: 120px; text-align: center; letter-spacing: .25em; color: #6ae0ff; }
+    body.touch.portrait #rotate { display: block; }
+    body.touch.portrait #soundhint { bottom: auto; top: calc(50% + 28vw + 18px); }
   </style>
 </head>
 <body>
@@ -34,6 +60,26 @@
   <div id="rec">REC 0:00:00</div>
   <div id="toast"></div>
   <div id="stats"></div>
+  <div id="touch">
+    <div id="pedals">
+      <button id="brake" aria-label="Brake"><svg viewBox="0 0 24 24"><path d="M3 7h18L12 19z"/></svg></button>
+      <button id="gas" aria-label="Accelerate"><svg viewBox="0 0 24 24"><path d="M3 17h18L12 5z"/></svg></button>
+    </div>
+    <button id="menuBtn" aria-label="Controls"><svg viewBox="0 0 24 24"><path d="M3 5h18v2.5H3zM3 10.75h18v2.5H3zM3 16.5h18V19H3z"/></svg></button>
+    <div id="menu">
+      <button data-act="music">Music</button>
+      <button data-act="next">Next track</button>
+      <button data-act="weather">Weather</button>
+      <button data-act="driver">Driver talk</button>
+      <button data-act="titles">Titles</button>
+      <button data-act="letterbox">Letterbox</button>
+      <button data-act="pause">Pause</button>
+      <button data-act="hints">Hide pedals</button>
+      <button data-act="fullscreen">Fullscreen</button>
+      <button data-act="record">Record</button>
+    </div>
+    <div id="rotate">TURN YOUR PHONE SIDEWAYS ↻</div>
+  </div>
 
   <script src="src/core.js"></script>
   <script src="src/font.js"></script>
