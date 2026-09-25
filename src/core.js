@@ -1,4 +1,4 @@
-/* Neon Drive — core utilities: constants, RNG, colour, dithering, pixel buffers, noise. */
+/* Nightdrive — core utilities: constants, RNG, colour, dithering, pixel buffers, noise. */
 (function () {
   'use strict';
   const ND = (window.ND = window.ND || {});

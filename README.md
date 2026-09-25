@@ -1,7 +1,9 @@
-# Neon Drive — Endless Night Run
+# Nightdrive — Endless Night Run
 
-![Neon Drive — clear night](docs/preview-pass2-clear.png)
-![Neon Drive — rain](docs/preview-pass2-rain.png)
+**Play it: [korak-the-mighty.github.io/nightdrive](https://korak-the-mighty.github.io/nightdrive/)**
+
+![Nightdrive — clear night, with the blimp overhead](docs/preview-clear.png)
+![Nightdrive — rain](docs/preview-rain.png)
 
 An endless, procedurally generated pixel-art night drive through a neon Art Deco
 beach strip. It's a white 80s supercar cruising past hotels, bars and motels under
@@ -19,7 +21,7 @@ ELVIS"). It stays grounded in a storm.
 ## Run it
 
 Open `index.html` in a browser. Double-clicking the file works (no server needed),
-or you can serve the folder with any static server. `dist/neon-drive.html` is the
+or you can serve the folder with any static server. `dist/nightdrive.html` is the
 same thing bundled into one file you can copy anywhere (rebuild it with
 `node tools/build.js`).
 
@@ -42,7 +44,7 @@ same thing bundled into one file you can copy anywhere (rebuild it with
 **On a phone or tablet** there are touch controls instead: hold the ▼ / ▲
 pedals (bottom right) to brake and accelerate, and the ☰ button (top right)
 opens music, next track, weather, driver talk, titles, letterbox, pause,
-fullscreen and record. Held sideways the picture fills the screen (a thin
+hide pedals, fullscreen and record. Held sideways the picture fills the screen (a thin
 strip is cropped off the top and bottom); held upright it shows in full,
 with a hint to turn the phone.
 
@@ -154,7 +156,7 @@ rolls in after each lightning strike.
 
 **Built-in recorder:** press `R` to record the canvas and the soundtrack
 together, and press it again to stop. The video is always 1080p60 (or
-`?rec=4k`), whatever your window size. In Chrome and Edge it streams straight
+`?rec=1440p` / `?rec=4k`), whatever your window size. In Chrome and Edge it streams straight
 to a file you pick, so a 3-hour recording doesn't fill memory. Other browsers
 download the file when you stop.
 
@@ -189,7 +191,7 @@ standard 16:9 size, so pixels stay perfectly square and crisp: 2× for 720p,
   and aircraft (planes, a helicopter with a searchlight, and the blimp with
   its scrolling LED sign).
 - `src/audio.js`: the generative soundtrack (composer and melody writer,
-  sequencer, the three styles' synths and drum kits, 8-bit samples, gated
+  sequencer, the four styles' synths and drum kits, 8-bit samples, gated
   reverb, ping-pong delay, sidechain, and the vocoder), the weather ambience,
   and the beat and drop sync for the visuals.
 - `tools/make-vocals.js`: generates the vocal pack from `tools/vocals.json`.

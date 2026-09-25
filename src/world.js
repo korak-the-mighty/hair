@@ -1,4 +1,4 @@
-/* Neon Drive — world simulation: parallax sequences, pedestrians, traffic, hero car. */
+/* Nightdrive — world simulation: parallax sequences, pedestrians, traffic, hero car. */
 (function () {
   'use strict';
   const ND = window.ND;

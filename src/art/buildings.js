@@ -1,4 +1,4 @@
-/* Neon Drive — Art Deco street buildings with baked neon lighting.
+/* Nightdrive — Art Deco street buildings with baked neon lighting.
  *
  * Each facade is authored as material maps (albedo, relief multiplier,
  * emissive, glass), lit by an ambient street/sky term plus every neon tube

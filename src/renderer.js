@@ -1,4 +1,4 @@
-/* Neon Drive — frame renderer: layered composition, emissive buffer, wet-road
+/* Nightdrive — frame renderer: layered composition, emissive buffer, wet-road
  * reflections, bloom and final presentation at integer pixel scale. */
 (function () {
   'use strict';

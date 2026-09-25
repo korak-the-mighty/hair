@@ -1,4 +1,4 @@
-/* Neon Drive — distant skyline towers (3 depths) and the lit causeway bridge. */
+/* Nightdrive — distant skyline towers (3 depths) and the lit causeway bridge. */
 (function () {
   'use strict';
   const ND = window.ND;

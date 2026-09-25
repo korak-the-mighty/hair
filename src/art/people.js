@@ -1,4 +1,4 @@
-/* Neon Drive — pedestrians: procedural skeletal walk cycles and idle poses. */
+/* Nightdrive — pedestrians: procedural skeletal walk cycles and idle poses. */
 (function () {
   'use strict';
   const ND = window.ND;

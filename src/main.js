@@ -1,4 +1,4 @@
-/* Neon Drive — boot, fixed-step main loop and pixel-perfect presentation. */
+/* Nightdrive — boot, fixed-step main loop and pixel-perfect presentation. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -94,7 +94,7 @@
         if (forcedQ == null && renderer.q > 0 && (winDrops > 18 || winRender / win > 11)) {
           renderer.q--;
           perf.quality = renderer.q;
-          console.log('Neon Drive: quality ->', renderer.q);
+          console.log('Nightdrive: quality ->', renderer.q);
         }
         win = winDrops = winRender = 0;
       }
@@ -235,7 +235,7 @@
   let recTimer = 0;
   async function toggleRecording() {
     if (!recorder) return;
-    if (window.ND_PREVIEW) { toast('record from dist/neon-drive.html on your computer'); return; }
+    if (window.ND_PREVIEW) { toast('record from dist/nightdrive.html on your computer'); return; }
     if (recorder.active) {
       recorder.stop();
       recEl.classList.remove('show');
@@ -284,7 +284,7 @@
     present();
     document.body.classList.add('ready');
     if (debug) stats.classList.add('show');
-    console.log(`Neon Drive ready in ${(performance.now() - t0).toFixed(0)} ms`);
+    console.log(`Nightdrive ready in ${(performance.now() - t0).toFixed(0)} ms`);
     showHud();
     requestAnimationFrame(frame);
   }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Generates the Neon Drive vocal pack with ElevenLabs.
+/* Generates the Nightdrive vocal pack with ElevenLabs.
  *
  *   node tools/make-vocals.js [--force] [--only id,id]
  *

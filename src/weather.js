@@ -1,4 +1,4 @@
-/* Neon Drive — weather: a slow director cycling clear/drizzle/rain/storm/mist,
+/* Nightdrive — weather: a slow director cycling clear/drizzle/rain/storm/mist,
  * light-catching rain in three depths, road splashes and ripple rings,
  * lightning with fractal bolts, and drifting ground mist. */
 (function () {

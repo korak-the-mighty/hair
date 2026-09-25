@@ -1,4 +1,4 @@
-/* Neon Drive — palm trees (silhouettes with neon rim light, swaying crowns),
+/* Nightdrive — palm trees (silhouettes with neon rim light, swaying crowns),
  * planter palms and shrubs. */
 (function () {
   'use strict';

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Bundles index.html + src/*.js into one self-contained HTML file.
- *   node tools/build.js                 -> dist/neon-drive.html
+ *   node tools/build.js                 -> dist/nightdrive.html
  *   node tools/build.js --fragment out  -> body-only fragment (for hosts that
  *                                          supply their own <html>/<head>)   */
 const fs = require('fs');
@@ -23,7 +23,7 @@ if (args[0] === '--fragment') {
   console.log('fragment ->', args[1]);
 } else {
   fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
-  const out = path.join(root, 'dist', 'neon-drive.html');
+  const out = path.join(root, 'dist', 'nightdrive.html');
   fs.writeFileSync(out, inlined);
   console.log('bundle ->', path.relative(root, out), (fs.statSync(out).size / 1024).toFixed(0) + ' KB');
 }

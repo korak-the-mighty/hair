@@ -1,4 +1,4 @@
-/* Neon Drive — cinematic effects: volumetric lamp cones, headlight beams,
+/* Nightdrive — cinematic effects: volumetric lamp cones, headlight beams,
  * film grain, umbrellas, and night aircraft (planes, a searchlight helicopter
  * and a blimp with a scrolling LED sign). */
 (function () {

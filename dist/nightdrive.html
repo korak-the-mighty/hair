@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Neon Drive</title>
+  <title>Nightdrive</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
     body { height: 100dvh; }
@@ -82,7 +82,7 @@
   </div>
 
   <script>/* src/core.js */
-/* Neon Drive — core utilities: constants, RNG, colour, dithering, pixel buffers, noise. */
+/* Nightdrive — core utilities: constants, RNG, colour, dithering, pixel buffers, noise. */
 (function () {
   'use strict';
   const ND = (window.ND = window.ND || {});
@@ -444,7 +444,7 @@
 
 </script>
   <script>/* src/font.js */
-/* Neon Drive — bitmap fonts and neon-tube text rendering. */
+/* Nightdrive — bitmap fonts and neon-tube text rendering. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -646,7 +646,7 @@
 
 </script>
   <script>/* src/art/sky.js */
-/* Neon Drive — night sky: dithered gradient, stars, moon, drifting clouds. */
+/* Nightdrive — night sky: dithered gradient, stars, moon, drifting clouds. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -825,7 +825,7 @@
 
 </script>
   <script>/* src/art/skyline.js */
-/* Neon Drive — distant skyline towers (3 depths) and the lit causeway bridge. */
+/* Nightdrive — distant skyline towers (3 depths) and the lit causeway bridge. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -1063,7 +1063,7 @@
 
 </script>
   <script>/* src/art/buildings.js */
-/* Neon Drive — Art Deco street buildings with baked neon lighting.
+/* Nightdrive — Art Deco street buildings with baked neon lighting.
  *
  * Each facade is authored as material maps (albedo, relief multiplier,
  * emissive, glass), lit by an ambient street/sky term plus every neon tube
@@ -1906,7 +1906,7 @@
 
 </script>
   <script>/* src/art/palms.js */
-/* Neon Drive — palm trees (silhouettes with neon rim light, swaying crowns),
+/* Nightdrive — palm trees (silhouettes with neon rim light, swaying crowns),
  * planter palms and shrubs. */
 (function () {
   'use strict';
@@ -2057,7 +2057,7 @@
 
 </script>
   <script>/* src/art/people.js */
-/* Neon Drive — pedestrians: procedural skeletal walk cycles and idle poses. */
+/* Nightdrive — pedestrians: procedural skeletal walk cycles and idle poses. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -2280,7 +2280,7 @@
 
 </script>
   <script>/* src/art/cars.js */
-/* Neon Drive — the hero 80s supercar (with driver) and background traffic. */
+/* Nightdrive — the hero 80s supercar (with driver) and background traffic. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -3053,7 +3053,7 @@
 
 </script>
   <script>/* src/art/props.js */
-/* Neon Drive — street furniture: lamps, planters, foreground foliage, light pools. */
+/* Nightdrive — street furniture: lamps, planters, foreground foliage, light pools. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -3252,7 +3252,7 @@
 
 </script>
   <script>/* src/weather.js */
-/* Neon Drive — weather: a slow director cycling clear/drizzle/rain/storm/mist,
+/* Nightdrive — weather: a slow director cycling clear/drizzle/rain/storm/mist,
  * light-catching rain in three depths, road splashes and ripple rings,
  * lightning with fractal bolts, and drifting ground mist. */
 (function () {
@@ -3595,7 +3595,7 @@
 
 </script>
   <script>/* src/fx.js */
-/* Neon Drive — cinematic effects: volumetric lamp cones, headlight beams,
+/* Nightdrive — cinematic effects: volumetric lamp cones, headlight beams,
  * film grain, umbrellas, and night aircraft (planes, a searchlight helicopter
  * and a blimp with a scrolling LED sign). */
 (function () {
@@ -3962,7 +3962,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
 
 </script>
   <script>/* src/audio.js */
-/* Neon Drive — endless generative night-drive soundtrack (Web Audio).
+/* Nightdrive — endless generative night-drive soundtrack (Web Audio).
  *
  * Everything is synthesised live. Each track is composed on the fly (style,
  * key, tempo, progression, melodies) in one of three 80s styles:
@@ -4462,7 +4462,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
             this.vox.driver.push(item);
           } else this.vox.hooks.push(item);
         } catch (e) {
-          console.warn('Neon Drive: vocal clip failed to load', clip.id, e);
+          console.warn('Nightdrive: vocal clip failed to load', clip.id, e);
         }
       }
       this.vox.ready = this.vox.hooks.length + this.vox.chops.length + this.vox.robots.length + this.vox.driver.length > 0;
@@ -5895,10 +5895,11 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
 
 </script>
   <script>/* src/recorder.js */
-/* Neon Drive — record the drive (picture + soundtrack) to a video file.
+/* Nightdrive — record the drive (picture + soundtrack) to a video file.
  *
  * Frames are captured from a dedicated fixed-size canvas (1080p by default,
- * 4K with ?rec=4k) so recordings don't depend on the window size. Where the
+ * 1440p with ?rec=1440p, 4K with ?rec=4k) so recordings don't depend on the
+ * window size. Where the
  * browser supports the File System Access API (Chrome, Edge) the video is
  * streamed straight to disk, so multi-hour mixtape recordings don't fill RAM;
  * elsewhere it's kept in memory and downloaded when recording stops.
@@ -5940,7 +5941,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
       this.mime = types.find((t) => MediaRecorder.isTypeSupported(t)) || '';
       const ext = this.mime.includes('mp4') ? 'mp4' : 'webm';
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-      this.name = `neon-drive-${stamp}.${ext}`;
+      this.name = `nightdrive-${stamp}.${ext}`;
       this.writable = null;
       if (window.showSaveFilePicker) {
         try {
@@ -5997,7 +5998,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
 
 </script>
   <script>/* src/world.js */
-/* Neon Drive — world simulation: parallax sequences, pedestrians, traffic, hero car. */
+/* Nightdrive — world simulation: parallax sequences, pedestrians, traffic, hero car. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -6504,7 +6505,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
 
 </script>
   <script>/* src/renderer.js */
-/* Neon Drive — frame renderer: layered composition, emissive buffer, wet-road
+/* Nightdrive — frame renderer: layered composition, emissive buffer, wet-road
  * reflections, bloom and final presentation at integer pixel scale. */
 (function () {
   'use strict';
@@ -7570,7 +7571,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
 
 </script>
   <script>/* src/main.js */
-/* Neon Drive — boot, fixed-step main loop and pixel-perfect presentation. */
+/* Nightdrive — boot, fixed-step main loop and pixel-perfect presentation. */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -7666,7 +7667,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
         if (forcedQ == null && renderer.q > 0 && (winDrops > 18 || winRender / win > 11)) {
           renderer.q--;
           perf.quality = renderer.q;
-          console.log('Neon Drive: quality ->', renderer.q);
+          console.log('Nightdrive: quality ->', renderer.q);
         }
         win = winDrops = winRender = 0;
       }
@@ -7807,7 +7808,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
   let recTimer = 0;
   async function toggleRecording() {
     if (!recorder) return;
-    if (window.ND_PREVIEW) { toast('record from dist/neon-drive.html on your computer'); return; }
+    if (window.ND_PREVIEW) { toast('record from dist/nightdrive.html on your computer'); return; }
     if (recorder.active) {
       recorder.stop();
       recEl.classList.remove('show');
@@ -7856,7 +7857,7 @@ window.ND_VOCALS = {"made":"2026-09-25T11:46:58.861Z","clips":[{"id":"night-driv
     present();
     document.body.classList.add('ready');
     if (debug) stats.classList.add('show');
-    console.log(`Neon Drive ready in ${(performance.now() - t0).toFixed(0)} ms`);
+    console.log(`Nightdrive ready in ${(performance.now() - t0).toFixed(0)} ms`);
     showHud();
     requestAnimationFrame(frame);
   }

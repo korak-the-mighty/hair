@@ -1,4 +1,4 @@
-/* Neon Drive — night sky: dithered gradient, stars, moon, drifting clouds. */
+/* Nightdrive — night sky: dithered gradient, stars, moon, drifting clouds. */
 (function () {
   'use strict';
   const ND = window.ND;

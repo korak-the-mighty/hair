@@ -1,4 +1,4 @@
-/* Neon Drive — endless generative night-drive soundtrack (Web Audio).
+/* Nightdrive — endless generative night-drive soundtrack (Web Audio).
  *
  * Everything is synthesised live. Each track is composed on the fly (style,
  * key, tempo, progression, melodies) in one of three 80s styles:
@@ -498,7 +498,7 @@
             this.vox.driver.push(item);
           } else this.vox.hooks.push(item);
         } catch (e) {
-          console.warn('Neon Drive: vocal clip failed to load', clip.id, e);
+          console.warn('Nightdrive: vocal clip failed to load', clip.id, e);
         }
       }
       this.vox.ready = this.vox.hooks.length + this.vox.chops.length + this.vox.robots.length + this.vox.driver.length > 0;

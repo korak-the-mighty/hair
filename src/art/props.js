@@ -1,4 +1,4 @@
-/* Neon Drive — street furniture: lamps, planters, foreground foliage, light pools. */
+/* Nightdrive — street furniture: lamps, planters, foreground foliage, light pools. */
 (function () {
   'use strict';
   const ND = window.ND;

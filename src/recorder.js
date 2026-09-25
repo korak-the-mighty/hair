@@ -1,7 +1,8 @@
-/* Neon Drive — record the drive (picture + soundtrack) to a video file.
+/* Nightdrive — record the drive (picture + soundtrack) to a video file.
  *
  * Frames are captured from a dedicated fixed-size canvas (1080p by default,
- * 4K with ?rec=4k) so recordings don't depend on the window size. Where the
+ * 1440p with ?rec=1440p, 4K with ?rec=4k) so recordings don't depend on the
+ * window size. Where the
  * browser supports the File System Access API (Chrome, Edge) the video is
  * streamed straight to disk, so multi-hour mixtape recordings don't fill RAM;
  * elsewhere it's kept in memory and downloaded when recording stops.
@@ -43,7 +44,7 @@
       this.mime = types.find((t) => MediaRecorder.isTypeSupported(t)) || '';
       const ext = this.mime.includes('mp4') ? 'mp4' : 'webm';
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-      this.name = `neon-drive-${stamp}.${ext}`;
+      this.name = `nightdrive-${stamp}.${ext}`;
       this.writable = null;
       if (window.showSaveFilePicker) {
         try {

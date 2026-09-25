@@ -1,5 +1,5 @@
 {
-  "about": "Vocal pack for the Neon Drive soundtrack. tools/make-vocals.js turns this into assets/vocals/*.mp3 + pack.js using ElevenLabs. Hooks are spoken/whispered lines placed in intros, breakdowns and builds; chops are sung syllables the engine re-pitches to each track's key for the drops; robot lines are spoken plainly and sung by the engine's vocoder on each track's chords; driver lines are the hero driver's own commentary, tagged by the moment he says them.",
+  "about": "Vocal pack for the Nightdrive soundtrack. tools/make-vocals.js turns this into assets/vocals/*.mp3 + pack.js using ElevenLabs. Hooks are spoken/whispered lines placed in intros, breakdowns and builds; chops are sung syllables the engine re-pitches to each track's key for the drops; robot lines are spoken plainly and sung by the engine's vocoder on each track's chords; driver lines are the hero driver's own commentary, tagged by the moment he says them.",
   "voices": {
     "her": { "prefer": ["Charlotte", "Sarah", "Lily", "Matilda", "Rachel"], "env": "ELEVENLABS_VOICE_HER" },
     "him": { "prefer": ["Brian", "Daniel", "George", "Adam"], "env": "ELEVENLABS_VOICE_HIM" },
