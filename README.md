@@ -37,24 +37,60 @@ URL options:
 - `?q=0|1|2` forces a quality level. The default is automatic.
 - `?debug` shows stats on load.
 - `?mute` keeps the soundtrack off.
+- `?style=miami|amiga|electro` plays only that soundtrack style.
 - `?rec=1440p` or `?rec=4k` records at that size. The default is 1080p.
 
 Options combine with `&`, for example `?weather=storm&seed=7`.
 
 ## Soundtrack
 
-Listen to a sample: [`docs/soundtrack-sample.webm`](docs/soundtrack-sample.webm) (2:26, Opus).
+Listen to a sample: [`docs/soundtrack-sample.webm`](docs/soundtrack-sample.webm) (2:26, Opus;
+recorded before the Amiga and Electro styles and the vocals were added).
 
-An endless night-drive disco mix, synthesised live in the browser with no
-audio files. Every track is composed on the fly: its key, tempo (108–122 BPM),
-chord loop, lead motif and arpeggio pattern are all picked fresh.
+An endless 80s night-drive mix, synthesised live in the browser. Every track
+is composed on the fly in one of three styles, and the style usually changes
+from one track to the next:
+
+- **Miami** (108–122 BPM): four-on-the-floor disco with a gated 80s snare, an
+  octave bass, sidechain-pumped supersaw chords, arps through a ping-pong
+  delay and a gliding lead.
+- **Amiga** (118–128 BPM): a tracker/MOD tune. Crunchy 8-bit drum samples,
+  chords played as fast chip arpeggios, and a squarewave lead with slides,
+  vibrato and echo, panned hard like an Amiga.
+- **Electro** (104–118 BPM): an 808-style kit with cowbell and Simmons tom
+  fills, a sequenced synth bass, brass stabs, orchestra hits, and staccato
+  riffs that leap octaves.
+
+Each track picks its key, tempo, chord loops and grooves fresh, and writes its
+own melodies: an eight-bar hook for the drops (a statement, its answer, a
+contrast and a return), slowed down in the breakdown, and a calmer tune for
+the verse. The "Now playing" card shows each track's title and style.
 
 Every track follows the same arc: intro → verse → build → **drop** →
 breakdown → a longer build → the **final drop**, lifted up a key → outro.
 Each build uses a riser and an accelerating snare roll, and a beat of
-silence falls just before each drop. The instruments are four-on-the-floor
-drums with a gated 80s snare, a disco octave bass, sidechain-pumped supersaw
-chords, arps through a ping-pong delay, and a gliding lead.
+silence falls just before each drop.
+
+### Vocals
+
+The vocal clips in `assets/vocals/` were made once with ElevenLabs and are
+built into the page, so it never calls ElevenLabs while it plays:
+
+- **Spoken hooks** ("Night drive…", "Wait for it…") come in intros, breakdowns
+  and builds. The drop-in lines end exactly as the drop hits.
+- **Sung chops** ("ooh", "ah", "hey"…) are retuned to each track's chords and
+  ride the second half of the drops.
+- **Robot lines** ("Neon city", "We ride tonight"…) are sung by a vocoder
+  built in Web Audio. The voice shapes a synth that plays the track's chord
+  and steps to a new note on each syllable, so the robot is always in tune.
+  A two-line robot chorus opens each drop, and Amiga and Electro tracks add
+  a line in the breakdown.
+
+The lines are listed in `tools/vocals.json`. To regenerate them, run
+`node tools/make-vocals.js` with an ElevenLabs key, either in
+`ELEVENLABS_API_KEY` or stored as a credential for `api.elevenlabs.io` that is
+sent as the `xi-api-key` header. Existing clips are skipped; `--force`
+remakes them.
 
 The world reacts to the music:
 - The driver nods on the beat, and the glow pulses with the kick.
@@ -96,9 +132,11 @@ standard 16:9 size, so pixels stay perfectly square and crisp: 2× for 720p,
   neon around it), splashes, ripple rings, lightning bolts and flashes, mist and overcast.
 - `src/fx.js`: the volumetric lamp cones, headlight beams, film grain, umbrellas,
   and aircraft (planes, and a helicopter with a searchlight).
-- `src/audio.js`: the generative soundtrack (composer, sequencer, synths,
-  gated reverb, ping-pong delay, sidechain), the weather ambience, and the
-  beat and drop sync for the visuals.
+- `src/audio.js`: the generative soundtrack (composer and melody writer,
+  sequencer, the three styles' synths and drum kits, 8-bit samples, gated
+  reverb, ping-pong delay, sidechain, and the vocoder), the weather ambience,
+  and the beat and drop sync for the visuals.
+- `tools/make-vocals.js`: generates the vocal pack from `tools/vocals.json`.
 - `src/recorder.js`: canvas + audio capture with MediaRecorder, streamed to
   disk where the browser supports it.
 - `src/renderer.js`: the colour and emissive buffers, ground-plane

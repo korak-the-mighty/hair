@@ -1,11 +1,17 @@
-/* Neon Drive — endless generative night-drive disco soundtrack (Web Audio).
+/* Neon Drive — endless generative night-drive soundtrack (Web Audio).
  *
- * Everything is synthesised live: four-on-the-floor drums with an 80s gated
- * snare, disco octave bass, sidechain-pumped supersaw chords, arps through a
- * ping-pong delay and a soaring lead. Each track is composed on the fly (key,
- * tempo, progression, motif) and follows an arc built on anticipation:
- * intro → verse → build → drop → breakdown → a longer build → the final drop
- * with a key lift → outro. Rain, thunder and tyre hiss follow the weather.
+ * Everything is synthesised live. Each track is composed on the fly (style,
+ * key, tempo, progression, melodies) in one of three 80s styles:
+ *   miami   — four-on-the-floor disco: gated snare, octave bass,
+ *             sidechain-pumped supersaw chords, arps and a soaring lead;
+ *   amiga   — a tracker/MOD tune: crunchy 8-bit drum samples, chords as fast
+ *             chip arpeggios, squarewave leads with vibrato, slides and echo;
+ *   electro — an 808-style kit with cowbell and Simmons toms, a sequenced
+ *             synth bass, brass stabs, orchestra hits and staccato riffs.
+ * Every track follows an arc built on anticipation: intro → verse → build →
+ * drop → breakdown → a longer build → the final drop with a key lift → outro.
+ * A vocal pack (spoken hooks, sung chops, and robot lines sung through a
+ * vocoder) is woven in, and rain, thunder and tyre hiss follow the weather.
  */
 (function () {
   'use strict';
@@ -23,13 +29,73 @@
     { d: [5, 6, 2, 0] }, { d: [3, 6, 2, 5] }, { d: [0, 5, 6, 4], dom: true }, { d: [5, 4, 0, 6], dom: true },
   ];
 
-  const RHYTHMS = [
-    [[0, 3], [3, 3], [6, 2], [8, 4], [12, 2], [14, 2], [16, 6], [22, 2], [24, 6], [30, 2]],
-    [[0, 2], [2, 2], [4, 4], [10, 2], [12, 4], [16, 2], [18, 2], [20, 6], [28, 4]],
-    [[2, 2], [4, 2], [6, 4], [12, 4], [18, 2], [20, 2], [22, 4], [28, 2], [30, 2]],
-    [[0, 6], [6, 2], [8, 6], [14, 2], [16, 4], [20, 4], [24, 8]],
-    [[0, 8], [8, 4], [12, 4], [16, 12], [28, 4]],
-    [[0, 3], [3, 3], [6, 4], [10, 2], [12, 4], [16, 3], [19, 3], [22, 4], [26, 6]],
+  const STYLES = ['miami', 'amiga', 'electro'];
+  const BPMS = {
+    miami: [108, 110, 112, 114, 115, 116, 118, 120, 122],
+    amiga: [118, 120, 122, 125, 125, 128],
+    electro: [104, 106, 108, 110, 112, 115, 118],
+  };
+
+  // Lead rhythms over two bars: [16th step, length]
+  const RHYTHMS = {
+    miami: [
+      [[0, 3], [3, 3], [6, 2], [8, 4], [12, 2], [14, 2], [16, 6], [22, 2], [24, 6], [30, 2]],
+      [[0, 2], [2, 2], [4, 4], [10, 2], [12, 4], [16, 2], [18, 2], [20, 6], [28, 4]],
+      [[2, 2], [4, 2], [6, 4], [12, 4], [18, 2], [20, 2], [22, 4], [28, 2], [30, 2]],
+      [[0, 6], [6, 2], [8, 6], [14, 2], [16, 4], [20, 4], [24, 8]],
+      [[0, 8], [8, 4], [12, 4], [16, 12], [28, 4]],
+      [[0, 3], [3, 3], [6, 4], [10, 2], [12, 4], [16, 3], [19, 3], [22, 4], [26, 6]],
+    ],
+    // tracker runs: quick 16th figures around held notes
+    amiga: [
+      [[0, 1], [1, 1], [2, 2], [4, 4], [8, 1], [9, 1], [10, 2], [12, 4], [16, 1], [17, 1], [18, 2], [20, 2], [22, 2], [24, 8]],
+      [[0, 6], [6, 1], [7, 1], [8, 6], [14, 1], [15, 1], [16, 4], [20, 2], [22, 2], [24, 4], [28, 1], [29, 1], [30, 2]],
+      [[0, 2], [2, 1], [3, 1], [4, 2], [6, 2], [8, 8], [16, 2], [18, 1], [19, 1], [20, 2], [22, 2], [24, 8]],
+      [[0, 4], [4, 1], [5, 1], [6, 1], [7, 1], [8, 4], [12, 4], [16, 3], [19, 3], [22, 2], [24, 1], [25, 1], [26, 1], [27, 1], [28, 4]],
+    ],
+    // staccato, syncopated riffs with room for octave jumps
+    electro: [
+      [[0, 2], [3, 1], [6, 1], [8, 2], [10, 1], [11, 1], [14, 2], [16, 2], [19, 1], [22, 2], [24, 1], [26, 2], [28, 4]],
+      [[0, 1], [2, 1], [3, 2], [6, 2], [8, 1], [10, 1], [12, 4], [16, 1], [18, 1], [19, 2], [22, 2], [24, 6]],
+      [[0, 3], [3, 3], [6, 2], [10, 1], [11, 1], [12, 2], [16, 3], [19, 3], [22, 1], [23, 1], [24, 8]],
+      [[0, 2], [2, 2], [4, 1], [6, 1], [7, 1], [8, 4], [14, 1], [15, 1], [16, 2], [18, 2], [20, 1], [22, 1], [23, 1], [24, 4], [28, 2], [30, 2]],
+    ],
+  };
+  // calmer rhythms for the verse melodies
+  const VERSE_RHYTHMS = [
+    [[0, 6], [6, 2], [8, 8], [16, 6], [22, 2], [24, 8]],
+    [[0, 4], [4, 4], [8, 8], [16, 4], [20, 4], [24, 8]],
+    [[2, 2], [4, 6], [12, 4], [18, 2], [20, 6], [28, 4]],
+    [[0, 8], [8, 3], [11, 5], [16, 8], [24, 4], [28, 4]],
+  ];
+  // Grooves. Kicks, chip chords and bass are one bar of 16ths; cowbells and
+  // stabs span two bars. Bass hits are [step, interval above the root, length].
+  const KICKS = {
+    amiga: [[0, 4, 8, 12], [0, 4, 8, 12], [0, 3, 8, 11], [0, 6, 8, 12]],
+    electro: [[0, 6, 10], [0, 3, 6, 10], [0, 4, 8, 12], [0, 7, 10], [0, 6, 8, 11]],
+  };
+  const CHIP_CHORDS = [[0, 4, 8, 12], [0, 3, 6, 8, 11, 14], [0, 2, 4, 6, 8, 10, 12, 14], [0, 6, 8, 14]];
+  const BELLS = [[2, 6, 11, 14, 18, 22, 27, 30], [0, 3, 6, 10, 12, 16, 19, 22, 26, 28], [3, 6, 10, 14, 19, 22, 26, 30]];
+  const STABS = [[2, 6, 10, 14, 18, 22, 26, 30], [0, 3, 6, 10, 16, 19, 22, 26, 28], [3, 6, 11, 14, 19, 22, 27, 30], [0, 6, 12, 16, 22, 28]];
+  const BASSES = {
+    amiga: [
+      [[0, 0, 2], [3, 0, 1], [4, 12, 2], [6, 0, 2], [8, 0, 2], [11, 0, 1], [12, 12, 2], [14, 7, 2]],
+      [[0, 0, 2], [2, 12, 2], [4, 0, 2], [6, 12, 2], [8, 0, 2], [10, 12, 2], [12, 0, 2], [14, 12, 2]],
+      [[0, 0, 3], [3, 0, 3], [6, 12, 2], [8, 0, 3], [11, 0, 3], [14, 12, 2]],
+    ],
+    electro: [
+      [[0, 0, 2], [3, 0, 1], [4, 12, 1], [6, 0, 2], [8, 0, 1], [10, 0, 1], [11, 12, 1], [14, 0, 2]],
+      [[0, 0, 1], [1, 0, 1], [3, 0, 1], [6, 0, 2], [8, 0, 1], [9, 0, 1], [11, 7, 1], [14, 12, 2]],
+      [[0, 0, 3], [3, 0, 3], [6, 0, 2], [8, 0, 1], [10, 12, 1], [11, 0, 1], [12, 7, 2], [14, 12, 2]],
+      [[0, 0, 1], [2, 0, 1], [3, 12, 1], [5, 0, 1], [6, 0, 1], [8, 0, 1], [10, 0, 1], [11, 12, 1], [13, 0, 1], [14, 7, 2]],
+    ],
+  };
+  // Vocoder: filter bands, envelope make-up gain and output level.
+  const VOC_BANDS = 18, VOC_GAIN = 12, VOC_OUT = 0.75;
+  // What the vocoder sings: chord-tone indices, one per syllable, and the last note.
+  const VOC_MELODIES = [
+    { notes: [0, 0, 1, 2, 1], end: 0 }, { notes: [2, 1, 1, 0], end: 0 }, { notes: [0, 2, 1, 2], end: 1 },
+    { notes: [1, 1, 2, 3], end: 2 }, { notes: [0, 1, 2, 3], end: 3 },
   ];
   const ARPS = [
     [0, 1, 2, 3, 0, 1, 2, 3], [0, 2, 1, 3, 0, 2, 1, 3], [0, 1, 2, 3, 2, 1, 0, 1],
@@ -64,16 +130,92 @@
     return 69 + 12 * Math.log2(sr / bestLag / 440);
   }
 
+  // Syllable onsets of a spoken line, in seconds from its first sound: the
+  // points where the loudness climbs again after a dip.
+  function syllables(d, sr, from, to) {
+    const hop = Math.round(sr * 0.01), env = [];
+    for (let i = from; i < to; i += hop) {
+      const e = Math.min(to, i + hop);
+      let s = 0;
+      for (let j = i; j < e; j++) s += d[j] * d[j];
+      env.push(Math.sqrt(s / Math.max(1, e - i)));
+    }
+    const sm = env.map((v, i) => (env[i - 1] || v) * 0.25 + v * 0.5 + (env[i + 1] || v) * 0.25);
+    const peak = Math.max(...sm) || 1;
+    const out = [0];
+    let hi = 0, lo = Infinity, armed = false, last = 0;
+    for (let i = 0; i < sm.length; i++) {
+      const v = sm[i];
+      if (!armed) {
+        hi = Math.max(hi, v);
+        if (hi > 0.2 * peak && v < 0.5 * hi) { armed = true; lo = v; }
+      } else {
+        lo = Math.min(lo, v);
+        if (v > Math.max(1.8 * lo, 0.22 * peak) && i - last >= 12) {
+          out.push((i * hop) / sr);
+          last = i;
+          armed = false;
+          hi = v;
+        }
+      }
+    }
+    return out;
+  }
+
+  // Band-limited pulse wave for the chip sounds (duty 0.5 is a square).
+  function pulseWave(ctx, duty) {
+    const n = 64, re = new Float32Array(n), im = new Float32Array(n);
+    for (let k = 1; k < n; k++) re[k] = (2 / (k * Math.PI)) * Math.sin(k * Math.PI * duty);
+    return ctx.createPeriodicWave(re, im);
+  }
+
   const WORDS_A = ['Midnight', 'Neon', 'Chrome', 'Velvet', 'Magenta', 'Electric', 'Crystal', 'Ocean', 'Laser', 'Violet', 'Golden', 'Satin', 'Cobalt', 'Cherry', 'Silver', 'Tropic', 'Lunar', 'Infinite', 'Silent'];
   const WORDS_B = ['Causeway', 'Boulevard', 'Afterglow', 'Overdrive', 'Riviera', 'Mirage', 'Heatwave', 'Skyline', 'Horizon', 'Nightcall', 'Arcade', 'Coastline', 'Getaway', 'Afterhours', 'Parallel', 'Cruise', 'Satellite', 'Palms', 'Motel', 'Signal'];
 
   // ---------------------------------------------------------------------------
   // Composition
   // ---------------------------------------------------------------------------
-  function makeTrack(r, prevTonic, index) {
+  // A two-bar melodic cell: a random walk over scale degrees on a rhythm,
+  // with the odd octave jump.
+  function cell(r, rhythm, start, leaps) {
+    const notes = [];
+    let deg = start;
+    for (let i = 0; i < rhythm.length; i++) {
+      const [st, len] = rhythm[i];
+      if (i > 0) {
+        if (leaps && r() < leaps) deg += deg > 3 ? -7 : 7;
+        else {
+          const up = st < 16 ? 0.62 : 0.38;
+          const mag = r() < 0.65 ? 1 : r() < 0.7 ? 2 : 3;
+          deg += r() < up ? mag : -mag;
+        }
+        deg = ND.clamp(deg, -2, 9);
+      }
+      notes.push({ st, len, deg, strong: st % 4 === 0 });
+    }
+    return notes;
+  }
+
+  // An eight-bar phrase of two-bar cells, A A' B A'': a statement, its answer,
+  // a contrast (often the statement moved up the scale) and a return home.
+  function phrase(r, rhythms, leaps = 0) {
+    const A = cell(r, r.pick(rhythms), r.pick([0, 2, 4]), leaps);
+    A[A.length - 1].deg = r.pick([2, 4, 7]);
+    const A2 = A.map((n, i) => (i >= A.length - 3 ? { ...n, deg: n.deg + r.pick([-2, -1, 1, 2]) } : n));
+    const B = r() < 0.45
+      ? A.map((n) => ({ ...n, deg: Math.min(11, n.deg + r.pick([2, 3, 4])) }))
+      : cell(r, r.pick(rhythms), r.pick([2, 4, 5]), leaps);
+    const A3 = A.map((n, i) => (i === A.length - 1 ? { ...n, deg: r.pick([0, 7]) } : n));
+    return [A, A2, B, A3];
+  }
+
+  function makeTrack(r, prev, index, force) {
     let tonic;
-    do tonic = r.int(0, 11); while (tonic === prevTonic);
-    const bpm = r.pick([108, 110, 112, 114, 115, 116, 118, 120, 122]);
+    do tonic = r.int(0, 11); while (prev && tonic === prev.tonic);
+    // mostly a change of style from one track to the next
+    let style = force || r.pick(STYLES);
+    if (!force && prev && style === prev.style && r() < 0.7) style = r.pick(STYLES.filter((x) => x !== prev.style));
+    const bpm = r.pick(BPMS[style]);
     const verse = r.pick(PROGS);
     let drop = r() < 0.55 ? verse : r.pick(PROGS);
     const chordBars = r() < 0.55 ? 1 : 2;
@@ -91,31 +233,26 @@
     ];
     let bar = 0;
     for (const s of sections) { s.start = bar; bar += s.bars; }
-    const rhythm = r.pick(RHYTHMS);
-    const motif = [];
-    let deg = r.pick([0, 2, 4]);
-    for (let i = 0; i < rhythm.length; i++) {
-      const [st, len] = rhythm[i];
-      if (i > 0) {
-        const up = st < 16 ? 0.62 : 0.38;
-        const mag = r() < 0.65 ? 1 : r() < 0.7 ? 2 : 3;
-        deg += r() < up ? mag : -mag;
-        deg = ND.clamp(deg, -2, 9);
-      }
-      motif.push({ st, len, deg, strong: st % 4 === 0 });
-    }
-    motif[motif.length - 1].deg = r.pick([0, 2, 4, 7]);
+    const hook = phrase(r, RHYTHMS[style], style === 'electro' ? 0.15 : style === 'amiga' ? 0.08 : 0);
+    const verseMel = phrase(r, VERSE_RHYTHMS);
     const name = `${r.pick(WORDS_A)} ${r.pick(WORDS_B)}`;
     return {
       index, name, bpm, tonic, key: `${NOTE_NAMES[tonic]} minor`,
+      style, styleName: style.toUpperCase(),
       verse, drop, chordBars, sections, totalBars: bar,
-      motif, answer: motif.map((n, i) => (i >= motif.length - 3 ? { ...n, deg: n.deg + r.pick([-2, -1, 1, 2]) } : n)),
+      hook, verseMel,
       arp: r.pick(ARPS),
       lift: r() < 0.6 ? 2 : r() < 0.5 ? 1 : 3,
-      leadWave: r.pick(['sawtooth', 'sawtooth', 'square']),
+      leadWave: style === 'amiga' ? r.pick(['pulse25', 'pulse25', 'pulse12', 'square']) : r.pick(['sawtooth', 'sawtooth', 'square']),
+      leadCenter: style === 'amiga' ? 74 : 70,
       bassOct: r.pick([true, true, false]),
       padBright: r.range(0.45, 0.8),
       swingHat: r() < 0.3,
+      kickPat: KICKS[style] ? r.pick(KICKS[style]) : null,
+      bassPat: BASSES[style] ? r.pick(BASSES[style]) : null,
+      chipPat: r.pick(CHIP_CHORDS),
+      bellPat: r.pick(BELLS),
+      stabPat: r.pick(STABS),
     };
   }
 
@@ -127,6 +264,16 @@
     while (m < center - 6) m += 12;
     while (m > center + 6) m -= 12;
     return m;
+  }
+
+  // Scale degree -> MIDI without folding: degree 0 is the tonic nearest
+  // `center`, so melodies keep their contour and octave jumps.
+  function scaleMidi(tonic, deg, center) {
+    let base = tonic;
+    while (base < center - 6) base += 12;
+    while (base > center + 5) base -= 12;
+    const o = Math.floor(deg / 7);
+    return base + MINOR[((deg % 7) + 7) % 7] + 12 * o;
   }
 
   function chordPcs(tonic, d, dom) {
@@ -157,9 +304,10 @@
   // Engine
   // ---------------------------------------------------------------------------
   class Music {
-    constructor(seed = 1985) {
+    constructor(seed = 1985, opts = {}) {
       this.seed = seed;
       this.r = ND.rng(seed * 13 + 7);
+      this.forceStyle = STYLES.includes(opts.style) ? opts.style : null;
       this.ctx = null;
       this.enabled = false;
       this.trackIndex = 0;
@@ -199,6 +347,13 @@
       N.drums = ctx.createGain();
       N.drums.gain.value = 0.95;
       N.drums.connect(N.master);
+      // warm saturation for the 808 kick
+      N.sat = ctx.createWaveShaper();
+      const sat = new Float32Array(1024);
+      for (let i = 0; i < 1024; i++) sat[i] = Math.tanh(((i / 1023) * 2 - 1) * 2.2) / Math.tanh(2.2);
+      N.sat.curve = sat;
+      const satOut = ctx.createGain(); satOut.gain.value = 0.62;
+      N.sat.connect(satOut).connect(N.drums);
       // reverbs
       N.verb = ctx.createConvolver();
       N.verb.buffer = this.impulse(ctx, 3.4, 2.2, false);
@@ -234,13 +389,18 @@
       const voxHP = ctx.createBiquadFilter();
       voxHP.type = 'highpass'; voxHP.frequency.value = 170;
       N.vox.connect(voxHP).connect(N.master);
-      this.vox = { hooks: [], chops: [], ready: false };
+      this.vox = { hooks: [], chops: [], robots: [], ready: false };
       this.recentHooks = [];
       this.voxLoading = this.loadVocals(ctx);
       // noise buffers
       this.white = this.noise(ctx, 2, 'white');
       this.pink = this.noise(ctx, 4, 'pink');
       this.brown = this.noise(ctx, 6, 'brown');
+      // chip waveforms, drum samples, and the vocoder's rectifier curve
+      this.waves = { pulse25: pulseWave(ctx, 0.25), pulse12: pulseWave(ctx, 0.125) };
+      this.smp = this.makeSamples(ctx);
+      this.absCurve = new Float32Array(2049);
+      for (let i = 0; i < 2049; i++) this.absCurve[i] = Math.abs(i / 1024 - 1);
       // ambience
       N.amb = ctx.createGain();
       N.amb.gain.value = 1;
@@ -275,12 +435,16 @@
             item.midi = detectPitch(d, sr, on, off);
             if (item.midi == null) continue; // unpitched: not usable as a chop
             this.vox.chops.push(item);
+          } else if (clip.kind === 'robot') {
+            item.voice = clip.voice;
+            item.syl = syllables(d, sr, on, off);
+            this.vox.robots.push(item);
           } else this.vox.hooks.push(item);
         } catch (e) {
           console.warn('Neon Drive: vocal clip failed to load', clip.id, e);
         }
       }
-      this.vox.ready = this.vox.hooks.length + this.vox.chops.length > 0;
+      this.vox.ready = this.vox.hooks.length + this.vox.chops.length + this.vox.robots.length > 0;
     }
 
     impulse(ctx, secs, decay, gated) {
@@ -318,6 +482,66 @@
         }
       }
       return buf;
+    }
+
+    // A one-shot sample computed from fn(t). With `rate`, each value is held
+    // for a period of that sample rate and quantised to `bits`, the way an
+    // 8-bit Amiga sample aliases and crunches.
+    sample(ctx, secs, fn, rate, bits) {
+      const sr = ctx.sampleRate, len = Math.floor(sr * secs);
+      const buf = ctx.createBuffer(1, len, sr);
+      const d = buf.getChannelData(0);
+      const q = bits ? Math.pow(2, bits - 1) : 0;
+      let held = 0, last = -1;
+      for (let i = 0; i < len; i++) {
+        const j = rate ? Math.floor((i * rate) / sr) : i;
+        if (j !== last) {
+          last = j;
+          held = fn(j / (rate || sr));
+          if (q) held = Math.round(held * q) / q;
+        }
+        d[i] = held;
+      }
+      return buf;
+    }
+
+    makeSamples(ctx) {
+      const r = ND.rng(1987);
+      const PAULA = 16574; // an Amiga playing C-3
+      const sq = (f, t) => (Math.sin(2 * Math.PI * f * t) > 0 ? 1 : -1);
+      // tracker kit
+      let ph = 0;
+      const kick = this.sample(ctx, 0.3, (t) => {
+        ph += (2 * Math.PI * (52 + 150 * Math.exp(-t / 0.028))) / PAULA;
+        return Math.sin(ph) * Math.exp(-t / 0.1) * 0.95;
+      }, PAULA, 6);
+      const snare = this.sample(ctx, 0.22, (t) => ND.clamp((r() * 2 - 1) * 0.75 * Math.exp(-t / 0.055) + Math.sin(2 * Math.PI * 190 * t) * 0.5 * Math.exp(-t / 0.035), -1, 1), PAULA, 6);
+      let prev = 0;
+      const tick = (dec) => (t) => { const n = r() * 2 - 1, h = n - prev; prev = n; return h * 0.45 * Math.exp(-t / dec); };
+      const hat = this.sample(ctx, 0.07, tick(0.016), 28000, 6);
+      const open = this.sample(ctx, 0.3, tick(0.075), 28000, 6);
+      // 808-style metal: six square oscillators, high-passed twice
+      const METAL = [205.3, 304.4, 369.6, 522.7, 540, 800];
+      const metal = (dec, secs) => {
+        let x1 = 0, y1 = 0, w1 = 0, z1 = 0;
+        return this.sample(ctx, secs, (t) => {
+          let x = 0;
+          for (const f of METAL) x += sq(f, t);
+          x /= 6;
+          const y = 0.54 * (y1 + x - x1); x1 = x; y1 = y;
+          const z = 0.54 * (z1 + y - w1); w1 = y; z1 = z;
+          return z * Math.exp(-t / dec) * 1.6;
+        });
+      };
+      // 808 cowbell: two squares with a two-stage decay
+      let cx = 0, cy = 0, cl = 0;
+      const cowbell = this.sample(ctx, 0.35, (t) => {
+        const x = (sq(540, t) + sq(800, t)) * 0.5;
+        const y = 0.93 * (cy + x - cx); cx = x; cy = y;
+        cl += (y - cl) * 0.45;
+        return cl * (0.55 * Math.exp(-t / 0.012) + 0.45 * Math.exp(-t / 0.09)) * 0.8;
+      });
+      return { kick, snare, hat, open, hat808: metal(0.018, 0.08), open808: metal(0.11, 0.4), cowbell };
     }
 
     buildAmbience(ctx) {
@@ -394,7 +618,7 @@
     }
     newTrack() {
       const prev = this.track;
-      this.track = makeTrack(this.r, prev ? prev.tonic : -1, this.trackIndex++);
+      this.track = makeTrack(this.r, prev, this.trackIndex++, this.forceStyle);
       this.bar = 0;
       this.stepIdx = 0;
       this.prevVoicing = null;
@@ -424,7 +648,28 @@
       if (r() < 0.35) plan.hooks.push({ bar: build1.start + build1.bars - 1, k: 0, tag: 'drop-in', align: true });
       if (r() < 0.5) plan.hooks.push({ bar: outro.start + 6, k: 0, tag: 'outro' });
       plan.chop = { pick: r(), rhythm: r.pick(CHOP_RHYTHMS), notes: r.pick(CHOP_NOTES), octave: r() < 0.5 ? 12 : 0 };
+      // robot vocoder: a two-line chorus opening each drop, and in the
+      // breakdown (and electro verses) a single line
+      if (r() < { miami: 0.55, amiga: 0.8, electro: 1 }[T.style]) {
+        const R = { pick: [r(), r()], mel: [r.pick(VOC_MELODIES), r.pick(VOC_MELODIES)], events: [] };
+        for (const d of T.sections) if (d.name === 'drop') R.events.push({ bar: d.start + 1, slot: 0 }, { bar: d.start + 5, slot: 1 });
+        if (T.style !== 'miami') R.events.push({ bar: brk.start + 4, slot: 0, soft: true });
+        if (T.style === 'electro') R.events.push({ bar: find('verse').start + 12, slot: 1, soft: true });
+        plan.robot = R;
+      }
       return plan;
+    }
+
+    // The two chorus lines for this track, fixed the first time they're sung.
+    robotLine(slot) {
+      const R = this.vplan.robot, list = this.vox.robots;
+      if (!R.clips) {
+        const a = Math.floor(R.pick[0] * list.length);
+        let b = Math.floor(R.pick[1] * list.length);
+        if (b === a) b = (b + 1) % list.length;
+        R.clips = [list[a], list[b]];
+      }
+      return R.clips[slot];
     }
 
     pickHook(tag) {
@@ -492,6 +737,7 @@
         if (s.name === 'drop') {
           this.impact(t, s.final ? 1.2 : 1);
           this.crash(t, 1);
+          if (T.style !== 'miami') this.orch(t, voice(pcs.slice(0, 3), null, 55), s.final ? 1.1 : 0.95);
           N.sweep.frequency.cancelScheduledValues(t);
           N.sweep.frequency.setValueAtTime(18000, t);
           this.marks.push({ t, type: 'drop', final: !!s.final });
@@ -540,6 +786,15 @@
           this.hook(at, h, ev.tag);
         }
       }
+      // --- robot vocoder lines: sung on the chord, so always in tune
+      const RB = this.vplan && this.vplan.robot;
+      if (RB && k === 0 && this.vox && this.vox.robots.length) {
+        for (const ev of RB.events) {
+          if (ev.bar !== this.bar) continue;
+          const clip = this.robotLine(ev.slot);
+          this.vocode(t, clip, RB.mel[ev.slot], voice(pcs, null, clip.voice === 'her' ? 62 : 52), ev.soft ? 0.75 : 1);
+        }
+      }
       // --- the wait: one beat of silence before every drop
       const gap = s.name === 'build' && lastBar && k >= 12;
       if (gap) {
@@ -553,6 +808,155 @@
       }
 
       // ------------------------------------------------ drums
+      if (T.style === 'amiga') this.drumsAmiga(t, s, sb, k, lastBar, secT);
+      else if (T.style === 'electro') this.drumsElectro(t, s, sb, k, lastBar, secT);
+      else this.drumsMiami(t, s, sb, k, lastBar, secT);
+
+      // ------------------------------------------------ bass
+      const bassOn = s.name === 'verse' || s.name === 'drop' || s.name === 'build' || (s.name === 'outro' && sb < 8) || (s.name === 'intro' && sb >= s.bars - 4);
+      const root = degMidi(tonic, ch.deg, 38);
+      if (bassOn && T.bassPat) {
+        // sequenced bass line; its last hit anticipates the next chord
+        const hit = T.bassPat.find((b) => b[0] === k);
+        if (hit) {
+          const next = hit === T.bassPat[T.bassPat.length - 1] && (this.bar + 1) % T.chordBars === 0;
+          const m = (next ? degMidi(tonic, this.chordAt(this.bar + 1, prog).deg, 38) : root) + hit[1];
+          const dur = this.stepDur * hit[2] * 0.9;
+          if (T.style === 'amiga') this.chipBass(t, m, dur, s.name === 'drop' ? 0.9 : 0.7);
+          else this.bass(t, m, dur, 0.85, s.name === 'drop' ? 0.85 : 0.55);
+        }
+      } else if (bassOn) {
+        if (T.bassOct || s.name === 'drop') {
+          if (k % 2 === 0) {
+            const hi = k % 4 === 2;
+            let m = root + (hi ? 12 : 0);
+            // pickup into the next chord
+            if (k === 14 && (this.bar + 1) % T.chordBars === 0) {
+              const nx = this.chordAt(this.bar + 1, prog);
+              m = degMidi(tonic, nx.deg, 38) + 12;
+            }
+            this.bass(t, m, this.stepDur * 1.7, hi ? 0.62 : 0.8, s.name === 'drop' ? 0.9 : 0.55);
+          }
+        } else if (k % 4 === 0 || k === 6 || k === 14) {
+          this.bass(t, root + (k === 6 ? 12 : 0), this.stepDur * 3, 0.8, 0.5);
+        }
+      } else if (s.name === 'break' && k === 0 && this.bar % T.chordBars === 0) {
+        this.bass(t, root, this.stepDur * 16 * T.chordBars * 0.95, 0.5, 0.2);
+      }
+
+      // ------------------------------------------------ chords
+      const chordStart = k === 0 && this.bar % T.chordBars === 0;
+      if (T.style === 'miami') {
+        if (chordStart) {
+          const v = voice(pcs, this.prevVoicing, 55);
+          this.prevVoicing = v;
+          const dur = this.stepDur * 16 * T.chordBars;
+          const big = s.name === 'drop';
+          const bright = big ? 1 : s.name === 'build' ? 0.4 + secT * 0.6 : s.name === 'break' ? 0.35 : T.padBright * (s.name === 'verse' ? 0.7 : 0.5);
+          const vel = s.name === 'outro' ? 0.26 * (1 - secT) + 0.05 : big ? 0.4 : s.name === 'verse' ? 0.2 : 0.26;
+          this.pad(t, v, dur, bright, vel, big ? 5 : 3, big ? 0.03 : 0.5);
+          if (s.final) this.pad(t, v.map((m) => m + 12), dur, 0.8, 0.12, 2, 0.05);
+        }
+      } else if (T.style === 'amiga') {
+        // tracker chords: fast arpeggios in the groove, a soft string pad in the quiet parts
+        const grooveOn = s.name === 'verse' || s.name === 'drop' || s.name === 'build' || (s.name === 'intro' && sb >= 4) || (s.name === 'outro' && sb < 8);
+        if (grooveOn && T.chipPat.includes(k)) {
+          const next = T.chipPat.find((x) => x > k);
+          const len = (next == null ? 16 + T.chipPat[0] : next) - k;
+          this.chipChord(t, voice(pcs.slice(0, 3), null, 62), this.stepDur * len * 0.92, s.name === 'drop' ? 0.2 : 0.14, s.name === 'drop' ? 'pulse25' : 'pulse12');
+        }
+        if (chordStart && s.name !== 'drop' && s.name !== 'verse') {
+          const v = voice(pcs, this.prevVoicing, 55);
+          this.prevVoicing = v;
+          this.pad(t, v, this.stepDur * 16 * T.chordBars, 0.3, s.name === 'break' ? 0.24 : 0.16, 2, 0.4);
+        }
+        if (s.name === 'drop' && sb % 8 === 0 && sb > 0 && k === 0) this.orch(t, voice(pcs.slice(0, 3), null, 55), 0.8);
+      } else {
+        // electro: brass stabs in the groove, orchestra hits, a soft pad elsewhere
+        if ((s.name === 'drop' || s.name === 'verse' || s.name === 'build') && T.stabPat.includes((this.bar % 2) * 16 + k)) {
+          this.stab(t, voice(pcs, null, 57), s.name === 'drop' ? 0.34 : 0.24, s.name === 'drop' ? 1 : 0.45 + secT * 0.4);
+        }
+        if (chordStart && s.name !== 'drop') {
+          const v = voice(pcs, this.prevVoicing, 55);
+          this.prevVoicing = v;
+          this.pad(t, v, this.stepDur * 16 * T.chordBars, 0.35, s.name === 'break' ? 0.22 : 0.14, 3, 0.3);
+        }
+        if (s.name === 'drop' && sb % 4 === 0 && sb > 0 && k === 0) this.orch(t, voice(pcs.slice(0, 3), null, 55), 0.75);
+      }
+
+      // ------------------------------------------------ arp
+      const arpOn = s.name === 'verse' || s.name === 'build' || s.name === 'drop' || (s.name === 'intro' && sb >= 4) || s.name === 'break';
+      if (arpOn) {
+        const v = voice(pcs, null, 64);
+        const idx = T.arp[k % 8];
+        const bright = s.name === 'drop' ? 0.9 : s.name === 'break' ? 0.3 : 0.4 + secT * 0.4;
+        if (T.style === 'miami') {
+          if (s.name !== 'break' || k % 2 === 0) {
+            const m = v[idx % v.length] + (k >= 8 && s.name === 'drop' ? 12 : 0);
+            this.arp(t, m, s.name === 'drop' ? 0.16 : s.name === 'break' ? 0.1 : 0.13, bright);
+          }
+        } else if (s.name !== 'drop' && (T.style === 'amiga' ? s.name !== 'break' || k % 2 === 0 : k % 2 === 0)) {
+          // chip bleeps an octave up (amiga), sequencer blips on the eighths (electro)
+          const amiga = T.style === 'amiga';
+          this.arp(t, v[idx % v.length] + (amiga ? 12 : 0), amiga ? 0.09 : 0.11, bright, amiga ? 'pulse12' : 'square');
+        }
+      }
+
+      // ------------------------------------------------ vocal chops ride the drops
+      const chopsOn = sb >= 8 || (s.final && !(this.vplan && this.vplan.robot));
+      if (s.name === 'drop' && chopsOn && this.vox && this.vox.ready && this.vox.chops.length && this.vplan) {
+        const P = this.vplan.chop;
+        const pos = (this.bar % 2) * 16 + k;
+        const hitIdx = P.rhythm.findIndex(([st]) => st === pos);
+        if (hitIdx >= 0) {
+          const clip = this.vox.chops[Math.floor(P.pick * this.vox.chops.length) % this.vox.chops.length];
+          const v = voice(pcs, null, 67);
+          const m = v[P.notes[hitIdx % P.notes.length] % v.length] + P.octave;
+          this.chopNote(t, clip, m, this.stepDur * P.rhythm[hitIdx][1] * 0.9, s.final ? 0.42 : 0.34);
+        }
+      }
+
+      // ------------------------------------------------ lead
+      // Melodies are eight-bar phrases of two-bar cells: the hook in the drops
+      // (slowed down in the breakdown) and a calmer tune in the verse.
+      const leadOn = s.name === 'drop' || (s.name === 'break' && sb >= 4) || (s.name === 'verse' && sb >= 8);
+      if (leadOn) {
+        const ci = Math.floor(sb / 2) % 4;
+        const cellNotes = (s.name === 'verse' ? T.verseMel : T.hook)[ci];
+        const pos = (sb % 2) * 16 + k;
+        // second time through a drop, the contrast cell climbs an octave
+        const low = Math.max(...cellNotes.map((n) => n.deg)) <= 4;
+        const up = T.style !== 'miami' && s.name === 'drop' && ci === 2 && Math.floor(sb / 8) % 2 === 1 && low ? 7 : 0;
+        for (const n of cellNotes) {
+          if (n.st !== pos) continue;
+          if (s.name === 'break' && !n.strong) continue;
+          let m = T.style === 'miami' ? degMidi(tonic, ch.deg + n.deg, 76) : scaleMidi(tonic, n.deg + up, T.leadCenter);
+          if (n.strong) {
+            // land strong beats on chord tones
+            let best = m, bd = 99;
+            for (const p of pcs) for (let o = -1; o <= 1; o++) {
+              const c = p + 12 * Math.round((m - p) / 12) + o * 12;
+              if (Math.abs(c - m) < bd) { bd = Math.abs(c - m); best = c; }
+            }
+            m = best;
+          }
+          if (s.final && m < (T.style === 'miami' ? 76 : T.leadCenter)) m += 12;
+          if (m > 93) m -= 12;
+          const stac = T.style === 'electro' && n.len <= 2 && s.name !== 'break';
+          const dur = this.stepDur * n.len * (s.name === 'break' ? 1.8 : stac ? 0.55 : 0.95);
+          const vel = s.name === 'drop' ? 0.34 : s.name === 'break' ? 0.22 : 0.2;
+          this.lead(t, m, dur, vel, T.leadWave);
+          if (s.final) this.lead(t, m - 12 + (MINOR.includes((m - 3 - tonic + 120) % 12) ? -3 : -4), dur, vel * 0.45, T.style === 'amiga' ? 'pulse12' : 'square');
+          // tracker echo: the note again three steps later, quieter
+          if (T.style === 'amiga' && n.len <= 2 && s.name !== 'break') this.lead(t + this.stepDur * 3, m, dur, vel * 0.3, T.leadWave, true);
+          this.prevLead = m;
+        }
+      }
+    }
+
+    // ---- drum kits -------------------------------------------------------------------
+    drumsMiami(t, s, sb, k, lastBar, secT) {
+      const T = this.track, beat = k % 4 === 0;
       const kickOn =
         (s.name === 'intro' && sb >= s.bars / 2) || s.name === 'verse' || s.name === 'drop' ||
         (s.name === 'build' && sb < s.bars - 2) || (s.name === 'outro' && sb < s.bars - 4);
@@ -580,93 +984,58 @@
       // fills at phrase ends
       if ((s.name === 'drop' || s.name === 'verse') && sb % 8 === 7 && k >= 12 && !lastBar) this.snare(t, 0.5 + (k - 12) * 0.12, false, 1.2);
       if (s.name === 'drop' && sb % 8 === 0 && sb > 0 && k === 0) this.crash(t, 0.6);
+    }
 
-      // ------------------------------------------------ bass
-      const bassOn = s.name === 'verse' || s.name === 'drop' || s.name === 'build' || (s.name === 'outro' && sb < 8) || (s.name === 'intro' && sb >= s.bars - 4);
-      const root = degMidi(tonic, ch.deg, 38);
-      if (bassOn) {
-        if (T.bassOct || s.name === 'drop') {
-          if (k % 2 === 0) {
-            const hi = k % 4 === 2;
-            let m = root + (hi ? 12 : 0);
-            // pickup into the next chord
-            if (k === 14 && (this.bar + 1) % T.chordBars === 0) {
-              const nx = this.chordAt(this.bar + 1, prog);
-              m = degMidi(tonic, nx.deg, 38) + 12;
-            }
-            this.bass(t, m, this.stepDur * 1.7, hi ? 0.62 : 0.8, s.name === 'drop' ? 0.9 : 0.55);
-          }
-        } else if (k % 4 === 0 || k === 6 || k === 14) {
-          this.bass(t, root + (k === 6 ? 12 : 0), this.stepDur * 3, 0.8, 0.5);
-        }
-      } else if (s.name === 'break' && k === 0 && this.bar % T.chordBars === 0) {
-        this.bass(t, root, this.stepDur * 16 * T.chordBars * 0.95, 0.5, 0.2);
+    // Tracker kit: crunchy 8-bit samples, pitched like MOD instruments.
+    drumsAmiga(t, s, sb, k, lastBar, secT) {
+      const T = this.track, S = this.smp;
+      const kickOn =
+        (s.name === 'intro' && sb >= s.bars / 2) || s.name === 'verse' || s.name === 'drop' ||
+        (s.name === 'build' && sb < s.bars - 2) || (s.name === 'outro' && sb < s.bars - 4);
+      if (kickOn && T.kickPat.includes(k)) this.drum(t, S.kick, s.name === 'drop' ? 1 : 0.75, 1, s.name === 'drop' ? 0.35 : 0.2);
+      const snareOn = s.name === 'verse' || s.name === 'drop' || (s.name === 'outro' && sb < 8);
+      if (snareOn && (k === 4 || k === 12)) this.drum(t, S.snare, s.name === 'drop' ? 0.85 : 0.65);
+      if (snareOn && s.name === 'drop' && k === 14 && sb % 2 === 1) this.drum(t, S.snare, 0.3, 1.15);
+      const hatsOn = s.name !== 'break' && !(s.name === 'intro' && sb < 4);
+      if (hatsOn && k % 2 === 0) this.drum(t, k % 4 === 2 && s.name === 'drop' ? S.open : S.hat, k % 4 === 2 ? 0.45 : 0.3, 1, 0, 0.35);
+      if (hatsOn && s.name === 'drop' && k % 2 === 1) this.drum(t, S.hat, 0.16, 1.1, 0, 0.35);
+      // build: a snare roll that climbs in pitch
+      if (s.name === 'build') {
+        const q = sb / s.bars;
+        const div = q < 0.5 ? 4 : q < 0.75 ? 2 : 1;
+        if (k % div === 0) this.drum(t, S.snare, 0.3 + 0.55 * secT, 1 + secT * 0.9);
       }
+      // fills: pitched snares running down the kit at phrase ends
+      if ((s.name === 'drop' || s.name === 'verse') && sb % 8 === 7 && k >= 12 && !lastBar) this.drum(t, S.snare, 0.6, 1.35 - (k - 12) * 0.1);
+      if (s.name === 'drop' && sb % 8 === 0 && sb > 0 && k === 0) this.crash(t, 0.5);
+    }
 
-      // ------------------------------------------------ chords
-      if (k === 0 && this.bar % T.chordBars === 0) {
-        const v = voice(pcs, this.prevVoicing, 55);
-        this.prevVoicing = v;
-        const dur = this.stepDur * 16 * T.chordBars;
-        const big = s.name === 'drop';
-        const bright = big ? 1 : s.name === 'build' ? 0.4 + secT * 0.6 : s.name === 'break' ? 0.35 : T.padBright * (s.name === 'verse' ? 0.7 : 0.5);
-        const vel = s.name === 'outro' ? 0.26 * (1 - secT) + 0.05 : big ? 0.4 : s.name === 'verse' ? 0.2 : 0.26;
-        this.pad(t, v, dur, bright, vel, big ? 5 : 3, big ? 0.03 : 0.5);
-        if (s.final) this.pad(t, v.map((m) => m + 12), dur, 0.8, 0.12, 2, 0.05);
+    // Electro kit: 808-style kick, claps, metallic hats, cowbell, Simmons toms.
+    drumsElectro(t, s, sb, k, lastBar, secT) {
+      const T = this.track, S = this.smp;
+      const kickOn =
+        (s.name === 'intro' && sb >= s.bars / 2) || s.name === 'verse' || s.name === 'drop' ||
+        (s.name === 'build' && sb < s.bars - 2) || (s.name === 'outro' && sb < s.bars - 4);
+      if (kickOn && T.kickPat.includes(k)) this.kick808(t, s.name === 'drop' ? 1 : 0.8, s.name === 'drop' ? 0.55 : 0.35);
+      const clapOn = s.name === 'verse' || s.name === 'drop' || (s.name === 'outro' && sb < 8);
+      if (clapOn && (k === 4 || k === 12)) this.snare(t, s.name === 'drop' ? 0.9 : 0.7, true);
+      const hatsOn = s.name !== 'break' && !(s.name === 'intro' && sb < 2);
+      if (hatsOn) {
+        const busy = s.name === 'drop' || (s.name === 'build' && sb >= s.bars / 2);
+        if (k % 2 === 0) this.drum(t, k % 4 === 2 && s.name === 'drop' ? S.open808 : S.hat808, k % 4 === 2 ? 0.34 : 0.26, 1, 0, 0.3);
+        else if (busy) this.drum(t, S.hat808, 0.15, 1, 0, 0.3);
       }
-
-      // ------------------------------------------------ arp
-      const arpOn = s.name === 'verse' || s.name === 'build' || s.name === 'drop' || (s.name === 'intro' && sb >= 4) || s.name === 'break';
-      if (arpOn && (s.name !== 'break' || k % 2 === 0)) {
-        const v = voice(pcs, null, 64);
-        const idx = T.arp[k % 8];
-        const m = v[idx % v.length] + (k >= 8 && s.name === 'drop' ? 12 : 0);
-        const bright = s.name === 'drop' ? 0.9 : s.name === 'break' ? 0.3 : 0.4 + secT * 0.4;
-        this.arp(t, m, s.name === 'drop' ? 0.16 : s.name === 'break' ? 0.1 : 0.13, bright);
+      if ((s.name === 'drop' || (s.name === 'verse' && sb >= 8)) && T.bellPat.includes((this.bar % 2) * 16 + k)) this.drum(t, S.cowbell, 0.3, 1, 0, -0.25);
+      // build: snare roll, then a tom run into the drop
+      if (s.name === 'build') {
+        const q = sb / s.bars;
+        const div = q < 0.5 ? 4 : q < 0.75 ? 2 : 1;
+        if (k % div === 0) this.snare(t, (0.25 + 0.75 * secT) * 0.7, false, 1 + secT * 0.6);
+        if (sb === s.bars - 2 && k >= 8 && k % 2 === 0) this.tom(t, 200 - (k - 8) * 16, 0.8);
       }
-
-      // ------------------------------------------------ vocal chops ride the drops
-      if (s.name === 'drop' && (s.final || sb >= 8) && this.vox && this.vox.ready && this.vox.chops.length && this.vplan) {
-        const P = this.vplan.chop;
-        const pos = (this.bar % 2) * 16 + k;
-        const hitIdx = P.rhythm.findIndex(([st]) => st === pos);
-        if (hitIdx >= 0) {
-          const clip = this.vox.chops[Math.floor(P.pick * this.vox.chops.length) % this.vox.chops.length];
-          const v = voice(pcs, null, 67);
-          const m = v[P.notes[hitIdx % P.notes.length] % v.length] + P.octave;
-          this.chopNote(t, clip, m, this.stepDur * P.rhythm[hitIdx][1] * 0.9, s.final ? 0.42 : 0.34);
-        }
-      }
-
-      // ------------------------------------------------ lead
-      const leadOn = s.name === 'drop' || (s.name === 'break' && sb >= 4) || (s.name === 'verse' && sb >= 8);
-      if (leadOn) {
-        const loopBars = 2;
-        const pos = ((this.bar % loopBars) * 16) + k;
-        const phrase = Math.floor(this.bar / loopBars) % 2 === 1 ? T.answer : T.motif;
-        for (const n of phrase) {
-          if (n.st !== pos) continue;
-          if (s.name === 'break' && !n.strong) continue;
-          if (s.name === 'verse' && n.len < 3 && !n.strong) continue;
-          const chordDeg = ch.deg;
-          let m = degMidi(tonic, chordDeg + n.deg, 76);
-          if (n.strong) {
-            // land strong beats on chord tones
-            let best = m, bd = 99;
-            for (const p of pcs) for (let o = -1; o <= 1; o++) {
-              const c = p + 12 * Math.round((m - p) / 12) + o * 12;
-              if (Math.abs(c - m) < bd) { bd = Math.abs(c - m); best = c; }
-            }
-            m = best;
-          }
-          if (s.final) m += 12 * (m < 76 ? 1 : 0);
-          const dur = this.stepDur * n.len * (s.name === 'break' ? 1.8 : 0.95);
-          const vel = s.name === 'drop' ? 0.34 : s.name === 'break' ? 0.22 : 0.2;
-          this.lead(t, m, dur, vel, T.leadWave);
-          if (s.final) this.lead(t, m - 12 + (MINOR.includes((m - 3 - tonic + 120) % 12) ? -3 : -4), dur, vel * 0.45, 'square');
-          this.prevLead = m;
-        }
-      }
+      // Simmons tom fills at phrase ends
+      if ((s.name === 'drop' || s.name === 'verse') && sb % 8 === 7 && k >= 10 && k % 2 === 0 && !lastBar) this.tom(t, 190 - (k - 10) * 18, 0.7);
+      if (s.name === 'drop' && sb % 8 === 0 && sb > 0 && k === 0) this.crash(t, 0.55);
     }
 
     // ---- instruments ------------------------------------------------------------
@@ -703,9 +1072,7 @@
       this.env(ng, t, 0.001, 0.22 * v, 0.012, 0.01, 0, null);
       n.connect(hp).connect(ng).connect(N.drums);
       n.start(t, 0.1); n.stop(t + 0.03);
-      this.duckAt(t, duck);
-      this.kicks.push(t);
-      if (this.kicks.length > 64) this.kicks.shift();
+      this.kickMark(t, duck);
     }
 
     snare(t, v, big, pitch = 1) {
@@ -865,9 +1232,9 @@
       });
     }
 
-    arp(t, m, v, bright) {
+    arp(t, m, v, bright, wave = 'square') {
       const c = this.ctx, N = this.n;
-      const o = c.createOscillator(); o.type = 'square'; o.frequency.value = hz(m);
+      const o = c.createOscillator(); this.setWave(o, wave); o.frequency.value = hz(m);
       const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 3;
       lp.frequency.setValueAtTime(700 + 5000 * bright, t);
       lp.frequency.exponentialRampToValueAtTime(380, t + 0.14);
@@ -878,35 +1245,56 @@
       o.start(t); o.stop(t + 0.22);
     }
 
-    lead(t, m, dur, v, wave) {
-      const c = this.ctx, N = this.n;
+    // The lead voice. Miami: detuned saws gliding between close notes.
+    // Amiga: one pulse channel with a tracker octave blip, slides and delayed
+    // vibrato, panned hard like an Amiga channel. Electro: saws that bend up
+    // into long notes.
+    lead(t, m, dur, v, wave, echo = false) {
+      const c = this.ctx, N = this.n, style = this.track.style;
+      const amiga = style === 'amiga', electro = style === 'electro';
       const f = hz(m);
       const g = c.createGain();
-      this.env(g, t, 0.012, v, 0.18, 0.78, 0.18, t + dur + 0.12);
+      if (amiga) this.env(g, t, 0.003, v, 0.12, 0.7, 0.05, t + dur + 0.04);
+      else this.env(g, t, 0.012, v, 0.18, 0.78, 0.18, t + dur + 0.12);
       const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1.6;
-      lp.frequency.setValueAtTime(5200, t);
-      lp.frequency.exponentialRampToValueAtTime(2600, t + 0.3);
-      const lfo = c.createOscillator(); lfo.frequency.value = 5.6;
+      lp.frequency.setValueAtTime(amiga ? 7000 : 5200, t);
+      if (!amiga) lp.frequency.exponentialRampToValueAtTime(2600, t + 0.3);
+      const lfo = c.createOscillator(); lfo.frequency.value = amiga ? 6.8 : 5.6;
       const lfoG = c.createGain();
       lfoG.gain.setValueAtTime(0, t);
-      lfoG.gain.linearRampToValueAtTime(f * 0.007, t + Math.min(0.5, dur));
+      if (amiga) {
+        lfoG.gain.setValueAtTime(0, t + Math.min(0.12, dur * 0.4));
+        lfoG.gain.linearRampToValueAtTime(f * 0.012, t + Math.min(0.35, dur));
+      } else lfoG.gain.linearRampToValueAtTime(f * 0.007, t + Math.min(0.5, dur));
       lfo.connect(lfoG);
-      const from = this.prevLead && Math.abs(this.prevLead - m) <= 7 ? hz(this.prevLead) : f;
+      const near = !echo && this.prevLead && Math.abs(this.prevLead - m) <= (amiga ? 5 : 7);
+      const from = near ? hz(this.prevLead) : electro && !echo && dur > this.stepDur * 3 ? hz(m - 2) : f;
+      const glide = amiga ? 0.07 : electro && !near ? 0.09 : 0.045;
+      const layers = amiga ? [[wave, 0, 0.75], ['square', -1200, 0.16]] : [[wave, -8, 0.5], [wave, 8, 0.5], ['square', -1200, 0.22]];
       const oscs = [];
-      for (const [type, det, gain] of [[wave, -8, 0.5], [wave, 8, 0.5], ['square', -1200, 0.22]]) {
+      for (const [type, det, gain] of layers) {
         const o = c.createOscillator();
-        o.type = type;
-        o.frequency.setValueAtTime(from, t);
-        o.frequency.exponentialRampToValueAtTime(f, t + 0.045);
+        this.setWave(o, type);
+        if (amiga && !near && !echo) {
+          o.frequency.setValueAtTime(f * 2, t);
+          o.frequency.setValueAtTime(f, t + 0.02);
+        } else {
+          o.frequency.setValueAtTime(from, t);
+          o.frequency.exponentialRampToValueAtTime(f, t + glide);
+        }
         o.detune.value = det;
         lfoG.connect(o.frequency);
         const og = c.createGain(); og.gain.value = gain;
         o.connect(og).connect(lp);
         oscs.push(o);
       }
-      lp.connect(g).connect(N.lead);
-      const rs = c.createGain(); rs.gain.value = 0.38; g.connect(rs).connect(N.verbIn);
-      const ds = c.createGain(); ds.gain.value = 0.3; g.connect(ds).connect(N.delayIn);
+      lp.connect(g);
+      if (amiga && c.createStereoPanner) {
+        const p = c.createStereoPanner(); p.pan.value = 0.5;
+        g.connect(p).connect(N.lead);
+      } else g.connect(N.lead);
+      const rs = c.createGain(); rs.gain.value = amiga ? 0.12 : 0.38; g.connect(rs).connect(N.verbIn);
+      const ds = c.createGain(); ds.gain.value = amiga ? 0.2 : 0.3; g.connect(ds).connect(N.delayIn);
       const end = t + dur + 0.2;
       lfo.start(t); lfo.stop(end);
       for (const o of oscs) { o.start(t); o.stop(end); }
@@ -951,6 +1339,199 @@
       const ds = c.createGain(); ds.gain.value = 0.18; g.connect(ds).connect(N.delayIn);
       src.start(t, clip.onset + Math.min(0.12, clip.dur * 0.1));
       src.stop(t + dur + 0.1);
+    }
+
+    setWave(o, w) {
+      if (this.waves && this.waves[w]) o.setPeriodicWave(this.waves[w]);
+      else o.type = w;
+    }
+
+    // A drum sample. `duck` > 0 marks it as a kick: sidechain pump + visuals.
+    drum(t, buf, v, rate = 1, duck = 0, pan = 0) {
+      const c = this.ctx, N = this.n;
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = rate;
+      const g = c.createGain(); g.gain.value = v;
+      src.connect(g);
+      if (pan && c.createStereoPanner) {
+        const p = c.createStereoPanner(); p.pan.value = pan;
+        g.connect(p).connect(N.drums);
+      } else g.connect(N.drums);
+      src.start(t);
+      if (duck) this.kickMark(t, duck);
+    }
+
+    kickMark(t, duck) {
+      this.duckAt(t, duck);
+      this.kicks.push(t);
+      if (this.kicks.length > 64) this.kicks.shift();
+    }
+
+    // 808-style kick: a long, saturated sine boom.
+    kick808(t, v, duck) {
+      const c = this.ctx, N = this.n;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(130, t);
+      o.frequency.exponentialRampToValueAtTime(50, t + 0.05);
+      o.frequency.exponentialRampToValueAtTime(42, t + 0.6);
+      this.env(g, t, 0.002, 1.2 * v, 0.7, 0.001, 0, null);
+      o.connect(g).connect(N.sat);
+      o.start(t); o.stop(t + 0.8);
+      this.kickMark(t, duck);
+    }
+
+    // Simmons-style electronic tom: a falling sine through the gated reverb.
+    tom(t, f, v) {
+      const c = this.ctx, N = this.n;
+      const o = c.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(f * 1.7, t);
+      o.frequency.exponentialRampToValueAtTime(f, t + 0.12);
+      const g = c.createGain();
+      this.env(g, t, 0.002, 0.55 * v, 0.35, 0.001, 0, null);
+      o.connect(g).connect(N.drums);
+      const s = c.createGain(); s.gain.value = 0.35; g.connect(s).connect(N.gatedIn);
+      o.start(t); o.stop(t + 0.4);
+    }
+
+    // The 80s orchestra hit: a big chord with a noisy bite, gone in half a second.
+    orch(t, notes, v) {
+      const c = this.ctx, N = this.n;
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1;
+      lp.frequency.setValueAtTime(5000, t);
+      lp.frequency.exponentialRampToValueAtTime(900, t + 0.4);
+      const g = c.createGain();
+      this.env(g, t, 0.004, 0.3 * v, 0.5, 0.001, 0, null);
+      lp.connect(g).connect(N.master);
+      const rs = c.createGain(); rs.gain.value = 0.5; g.connect(rs).connect(N.verbIn);
+      const voices = [...notes.map((m) => [m, 'sawtooth']), [notes[0] - 12, 'square'], [notes[0] + 12, 'sawtooth']];
+      voices.forEach(([m, type], i) => {
+        const o = c.createOscillator(); o.type = type;
+        o.frequency.value = hz(m);
+        o.detune.value = (i % 2 ? 7 : -7);
+        o.connect(lp);
+        o.start(t); o.stop(t + 0.6);
+      });
+      const n = c.createBufferSource(); n.buffer = this.white;
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 0.8;
+      const ng = c.createGain();
+      this.env(ng, t, 0.001, 0.8, 0.06, 0.01, 0, null);
+      n.connect(bp).connect(ng).connect(lp);
+      n.start(t, 0.3); n.stop(t + 0.15);
+    }
+
+    // Tracker chord: one pulse channel racing through the chord tones at the
+    // 50 Hz frame rate (the 0xy arpeggio effect), panned hard left.
+    chipChord(t, notes, dur, v, wave) {
+      const c = this.ctx, N = this.n;
+      const o = c.createOscillator(); this.setWave(o, wave);
+      for (let x = 0, i = 0; x < dur; x += 1 / 50, i++) o.frequency.setValueAtTime(hz(notes[i % notes.length]), t + x);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6500;
+      const g = c.createGain();
+      this.env(g, t, 0.002, v, dur * 0.8, 0.4, 0.02, t + dur);
+      o.connect(lp).connect(g);
+      if (c.createStereoPanner) {
+        const p = c.createStereoPanner(); p.pan.value = -0.55;
+        g.connect(p).connect(N.music);
+      } else g.connect(N.music);
+      const ds = c.createGain(); ds.gain.value = 0.15; g.connect(ds).connect(N.delayIn);
+      o.start(t); o.stop(t + dur + 0.03);
+    }
+
+    // Tracker bass: a plucked square.
+    chipBass(t, m, dur, v) {
+      const c = this.ctx, N = this.n;
+      const o = c.createOscillator(); o.type = 'square'; o.frequency.value = hz(m);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(2400, t);
+      lp.frequency.exponentialRampToValueAtTime(700, t + 0.12);
+      const g = c.createGain();
+      this.env(g, t, 0.002, 0.3 * v, 0.1, 0.6, 0.02, t + dur);
+      o.connect(lp).connect(g).connect(N.music);
+      o.start(t); o.stop(t + dur + 0.03);
+    }
+
+    // Brass-like synth stab: detuned saws through a snappy filter.
+    stab(t, notes, v, bright) {
+      const c = this.ctx, N = this.n;
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 2.5;
+      lp.frequency.setValueAtTime(900 + 4200 * bright, t);
+      lp.frequency.exponentialRampToValueAtTime(600, t + 0.16);
+      const g = c.createGain();
+      this.env(g, t, 0.004, (v / Math.sqrt(notes.length * 2)) * 1.5, 0.22, 0.001, 0, null);
+      lp.connect(g).connect(N.music);
+      const rs = c.createGain(); rs.gain.value = 0.3; g.connect(rs).connect(N.verbIn);
+      for (const m of notes) for (const det of [-7, 7]) {
+        const o = c.createOscillator(); o.type = 'sawtooth';
+        o.frequency.value = hz(m); o.detune.value = det;
+        o.connect(lp);
+        o.start(t); o.stop(t + 0.3);
+      }
+    }
+
+    // Robot vocoder. The spoken line (the modulator) is split into bands, and
+    // each band's loudness opens the same band of a synth (the carrier) that
+    // sings the line: a lead voice stepping through the melody syllable by
+    // syllable, the chord underneath, and a little noise for the consonants.
+    vocode(t, clip, mel, tones, v) {
+      const c = this.ctx, N = this.n;
+      const end = t + clip.dur;
+      const out = c.createGain(); out.gain.value = v * VOC_OUT;
+      out.connect(N.vox);
+      const rs = c.createGain(); rs.gain.value = 0.35; out.connect(rs).connect(N.verbIn);
+      const ds = c.createGain(); ds.gain.value = 0.22; out.connect(ds).connect(N.delayIn);
+      const mod = c.createBufferSource(); mod.buffer = clip.buf;
+      const modG = c.createGain(); modG.gain.value = clip.norm;
+      mod.connect(modG);
+      const car = c.createGain();
+      const lead = c.createOscillator(); lead.type = 'sawtooth';
+      const leadG = c.createGain(); leadG.gain.value = 0.8;
+      lead.connect(leadG).connect(car);
+      let prevF = 0;
+      clip.syl.forEach((at, i) => {
+        const idx = i === clip.syl.length - 1 ? mel.end : mel.notes[i % mel.notes.length];
+        const f = hz(tones[idx % tones.length]);
+        if (!prevF) lead.frequency.setValueAtTime(f, t);
+        else {
+          lead.frequency.setValueAtTime(prevF, t + at);
+          lead.frequency.exponentialRampToValueAtTime(f, t + at + 0.035);
+        }
+        prevF = f;
+      });
+      const oscs = [lead];
+      for (const m of tones) {
+        const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = hz(m);
+        const og = c.createGain(); og.gain.value = 0.2;
+        o.connect(og).connect(car);
+        oscs.push(o);
+      }
+      const hiss = c.createBufferSource(); hiss.buffer = this.white; hiss.loop = true;
+      const hissG = c.createGain(); hissG.gain.value = 0.12;
+      hiss.connect(hissG).connect(car);
+      for (let i = 0; i < VOC_BANDS; i++) {
+        const f = 150 * Math.pow(7000 / 150, i / (VOC_BANDS - 1));
+        const mb = c.createBiquadFilter(); mb.type = 'bandpass'; mb.frequency.value = f; mb.Q.value = 5;
+        const rect = c.createWaveShaper(); rect.curve = this.absCurve;
+        const env = c.createBiquadFilter(); env.type = 'lowpass'; env.frequency.value = 40;
+        const amt = c.createGain(); amt.gain.value = VOC_GAIN;
+        modG.connect(mb).connect(rect).connect(env).connect(amt);
+        const cb = c.createBiquadFilter(); cb.type = 'bandpass'; cb.frequency.value = f; cb.Q.value = 5;
+        const vca = c.createGain(); vca.gain.value = 0;
+        amt.connect(vca.gain);
+        car.connect(cb).connect(vca).connect(out);
+      }
+      // sibilants straight through
+      const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5000;
+      const hpG = c.createGain(); hpG.gain.value = 0.25;
+      modG.connect(hp).connect(hpG).connect(out);
+      mod.start(t, clip.onset); mod.stop(end + 0.1);
+      for (const o of oscs) { o.start(t); o.stop(end + 0.3); }
+      hiss.start(t, (t * 3.7) % 1.5); hiss.stop(end + 0.3);
+      // the lead line steps back while the robot sings
+      N.lead.gain.setTargetAtTime(0.4, t, 0.05);
+      N.lead.gain.setTargetAtTime(0.9, end, 0.2);
+      this.marks.push({ t, type: 'vocal', text: clip.text });
     }
 
     // ---- weather -------------------------------------------------------------------

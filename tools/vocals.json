@@ -1,5 +1,5 @@
 {
-  "about": "Vocal pack for the Neon Drive soundtrack. tools/make-vocals.js turns this into assets/vocals/*.mp3 + pack.js using ElevenLabs. Hooks are spoken/whispered lines placed in intros, breakdowns and builds; chops are sung syllables the engine re-pitches to each track's key for the drops.",
+  "about": "Vocal pack for the Neon Drive soundtrack. tools/make-vocals.js turns this into assets/vocals/*.mp3 + pack.js using ElevenLabs. Hooks are spoken/whispered lines placed in intros, breakdowns and builds; chops are sung syllables the engine re-pitches to each track's key for the drops; robot lines are spoken plainly and sung by the engine's vocoder on each track's chords.",
   "voices": {
     "her": { "prefer": ["Charlotte", "Sarah", "Lily", "Matilda", "Rachel"], "env": "ELEVENLABS_VOICE_HER" },
     "him": { "prefer": ["Brian", "Daniel", "George", "Adam"], "env": "ELEVENLABS_VOICE_HIM" }
@@ -28,5 +28,21 @@
     { "id": "oh", "syllable": "oh", "prompt": "Solo female pop vocal, a cappella, one sustained 'oh' sung on a single steady note E4, warm, no instruments, no effects, dry studio recording." },
     { "id": "hey", "syllable": "hey", "prompt": "Solo female pop vocal, a cappella, a short punchy sung 'hey!' on the note A4, no instruments, no effects, dry studio recording." },
     { "id": "yeah", "syllable": "yeah", "prompt": "Solo female pop vocal, a cappella, a short sung 'yeah' on the note A4, sweet and breathy, no instruments, no effects, dry studio recording." }
+  ],
+  "robot": [
+    { "id": "robo-neon-city", "voice": "him", "text": "Neon city." },
+    { "id": "robo-night-drive", "voice": "him", "text": "Night drive." },
+    { "id": "robo-electric-heart", "voice": "him", "text": "Electric heart." },
+    { "id": "robo-we-ride", "voice": "him", "text": "We ride tonight." },
+    { "id": "robo-into-the-light", "voice": "him", "text": "Into the light." },
+    { "id": "robo-chrome-and-neon", "voice": "him", "text": "Chrome and neon." },
+    { "id": "robo-midnight-radio", "voice": "him", "text": "Midnight radio." },
+    { "id": "robo-never-stop", "voice": "him", "text": "Never stop the music." },
+    { "id": "robo-feel-the-night", "voice": "her", "text": "Feel the night." },
+    { "id": "robo-ocean-drive", "voice": "her", "text": "Ocean Drive." },
+    { "id": "robo-lost-in-neon", "voice": "her", "text": "Lost in the neon." },
+    { "id": "robo-dance-machine", "voice": "her", "text": "Dance machine." },
+    { "id": "robo-faster", "voice": "her", "text": "Faster, faster." },
+    { "id": "robo-stay-tonight", "voice": "her", "text": "Stay tonight." }
   ]
 }

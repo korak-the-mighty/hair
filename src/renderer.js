@@ -765,7 +765,7 @@
       if (!this.titleCache || this.titleCache.track !== T) {
         const top = ND.textMask('NOW PLAYING', { small: true, gap: 1 });
         const name = ND.textMask(T.name, { gap: 1 });
-        const info = ND.textMask(`${T.key.toUpperCase().replace('#', ' SHARP')} - ${T.bpm} BPM`, { small: true, gap: 1 });
+        const info = ND.textMask(`${T.key.toUpperCase().replace('#', ' SHARP')} - ${T.bpm} BPM${T.styleName ? ' - ' + T.styleName : ''}`, { small: true, gap: 1 });
         const w = Math.max(top.w, name.w, info.w) + 8, h = 30;
         const pb = new ND.PB(w, h), gl = new ND.PB(w, h);
         ND.neonMask(pb, gl, top, 3, 2, ...ND.NEON.cyan, { halo: false });

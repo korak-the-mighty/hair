@@ -192,7 +192,7 @@
     renderer = new ND.Renderer(world, { quality: params.get('q') != null ? +params.get('q') : undefined });
     ND.world = world;
     ND.renderer = renderer;
-    music = ND.music = new ND.Music(seed);
+    music = ND.music = new ND.Music(seed, { style: params.get('style') });
     recorder = new ND.Recorder(params.get('rec') === '4k' ? 6 : params.get('rec') === '1440p' ? 4 : 3);
     recorder.onsaved = (name, streamed) => toast(streamed ? 'saved ' + name : 'downloading ' + name);
     // big moments: a drop during a storm brings the lightning with it
