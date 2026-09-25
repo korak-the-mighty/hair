@@ -181,6 +181,9 @@
     if (e.key === 'ArrowDown') pedalUp(-1);
   });
   window.addEventListener('keydown', (e) => {
+    // browser shortcuts (⌘R / Ctrl+R reload, ⌘L, ⌘M…) are the browser's, not ours:
+    // ⌘R used to start a recording and flash the save dialog as the page reloaded
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       pedal(e.key === 'ArrowUp' ? 1 : -1);
@@ -189,7 +192,7 @@
     const act = KEYS[e.key.length === 1 ? e.key.toLowerCase() : ''];
     if (act) {
       if (e.key === ' ') e.preventDefault();
-      ACTIONS[act]();
+      if (!e.repeat) ACTIONS[act](); // holding a key doesn't flip a toggle back and forth
     } else startSound();
     showHud();
   });
