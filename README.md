@@ -9,6 +9,13 @@ palm trees, with wet-road reflections and bloom. Everything is drawn in code:
 there are no image assets. It runs in any modern browser and is built to be
 screen-captured as the visual for long mixtapes.
 
+The strip doesn't take itself too seriously. About a third of the neon is a
+gag: the MIAMI NICE and GATOR ARMS hotels, SYNTH & TONIC and CROCKETT'S,
+BE KIND REWIND and HAIRSPRAY 24H, and motels offering WATERBEDS with
+MAYBE VACANCY. Every few minutes the tourist board's blimp drifts over the
+city, scrolling one-liners on its LED sign ("LOST: ONE ALLIGATOR. ANSWERS TO
+ELVIS"). It stays grounded in a storm.
+
 ## Run it
 
 Open `index.html` in a browser. Double-clicking the file works (no server needed),
@@ -115,11 +122,12 @@ built into the page, so it never calls ElevenLabs while it plays:
 The man at the wheel talks, in his own voice (ElevenLabs' Liam): thrilled,
 smooth, and aware that we're riding along. He reacts to the song (a new
 track, a build-up, the drop: "Yes! Yes! Yes!"), to the world (rain, the
-window going up, lightning, the helicopter, his cigarette going back out:
-"One for the road never hurt."), to the speed pedal ("Pedal to the metal!",
-"Red light? Nah... just enjoying the view."), and now and then just muses ("Suave.",
-"Left-handed.", "Best job in the world."). Sometimes he turns to the camera
-("Hey. Glad you're riding with me.") and nods when he's done.
+window going up, lightning, the helicopter, the blimp, his cigarette going
+back out: "One for the road never hurt."), to the speed pedal ("Pedal to the
+metal!", "Red light? Good. The hair needs a minute."), and now and then just
+muses ("Suave.", "No socks. Never socks.", "Business up front... party in the
+back."). Sometimes he turns to the camera ("Sunglasses at night? Always.") and
+nods when he's done.
 
 He waits for a clear moment, so he never talks over the robot, the hooks
 or the silent beat, and the music dips under his voice like a radio DJ's.
@@ -178,7 +186,8 @@ standard 16:9 size, so pixels stay perfectly square and crisp: 2× for 720p,
   (a crown, droplets thrown up, a ripple ring) or bursting on the hero car's
   roof, hood and deck; lightning bolts and flashes, mist and overcast.
 - `src/fx.js`: the volumetric lamp cones, headlight beams, film grain, umbrellas,
-  and aircraft (planes, and a helicopter with a searchlight).
+  and aircraft (planes, a helicopter with a searchlight, and the blimp with
+  its scrolling LED sign).
 - `src/audio.js`: the generative soundtrack (composer and melody writer,
   sequencer, the three styles' synths and drum kits, 8-bit samples, gated
   reverb, ping-pong delay, sidechain, and the vocoder), the weather ambience,

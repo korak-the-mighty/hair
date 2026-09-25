@@ -1,5 +1,6 @@
 /* Neon Drive — cinematic effects: volumetric lamp cones, headlight beams,
- * film grain, umbrellas, and night aircraft (planes + a searchlight helicopter). */
+ * film grain, umbrellas, and night aircraft (planes, a searchlight helicopter
+ * and a blimp with a scrolling LED sign). */
 (function () {
   'use strict';
   const ND = window.ND;
@@ -121,8 +122,82 @@
     return pb.canvas();
   }
 
-  // Night aircraft: blinking planes high up, and a helicopter sweeping a
-  // searchlight over the skyline.
+  // The tourist board's blimp, facing left, with a dark LED board on its side
+  // (the text is scrolled onto it live). Envelope, fins, gondola.
+  function genBlimp() {
+    const L = 80, W = 84, H = 36, cy = 15.5, R = 11.5;
+    const pb = new ND.PB(W, H);
+    const P = (c) => ND.pack(c[0], c[1], c[2]);
+    // radius along the hull: a blunt nose and a long taper to the tail
+    const rAt = (x) => {
+      const u = (x + 0.5) / L, t = u < 0.38 ? (u - 0.38) / 0.38 : (u - 0.38) / 0.62;
+      return Math.abs(t) >= 1 ? 0 : R * Math.sqrt(1 - t * t);
+    };
+    const fin = (pts) => pb.polyFn(pts, (x, y) => {
+      const edge = !pb.alpha(x, y - 1) && y > 0;
+      pb.set(x, y, P(edge ? rgb('#ff8ad0') : ND.mix(rgb('#1c5a66'), rgb('#123c48'), (x - 60) / 20)));
+    });
+    fin([[61, cy - 8], [69, cy - 15], [78, cy - 15], [80, cy - 2]]);
+    fin([[61, cy + 8], [69, cy + 15], [78, cy + 15], [80, cy + 2]]);
+    for (let x = 0; x < L; x++) {
+      const r = rAt(x);
+      for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+        const ny = (y + 0.5 - cy) / (r || 1);
+        if (Math.abs(ny) > 1) continue;
+        const nx = Math.abs((x + 0.5) / L - 0.38) * 2;
+        // moonlight on top, the city's pink glow underneath
+        let c = ND.mix(rgb('#2e2842'), rgb('#aaa4cc'), Math.pow(Math.max(0, -ny), 0.9) * 0.75 + 0.12 - nx * 0.1);
+        c = ND.mix(c, rgb('#b04c8e'), Math.pow(Math.max(0, ny), 1.6) * 0.55);
+        if (Math.abs(ny) > 0.93) c = ND.scale(c, 0.7);
+        if (x % 11 === 5 && Math.abs(ny) < 0.9) c = ND.scale(c, 0.9); // fabric gores
+        pb.dset(x, y, c, 255, 10);
+      }
+    }
+    // a pink pinstripe down the side, the horizontal fin, the gondola
+    for (let x = 6; x < 70; x++) if (rAt(x) > 7.5) pb.set(x, Math.round(cy + 6), P(ND.mix(rgb('#ff6ac0'), rgb('#6a2a5a'), 0.35)));
+    pb.polyFn([[62, cy - 1], [80, cy - 2.5], [81.5, cy + 2.5], [62, cy + 1]], (x, y) => pb.set(x, y, P(y < cy ? rgb('#2a7a88') : rgb('#15404c'))));
+    const gy = Math.round(cy + R) - 1;
+    for (let y = gy; y < gy + 5; y++) for (let x = 26; x <= 42; x++) {
+      if ((y === gy || y === gy + 4) && (x < 28 || x > 40)) continue;
+      pb.set(x, y, P(y === gy + 4 ? rgb('#16121e') : rgb('#2c2838')));
+    }
+    for (let x = 28; x <= 40; x += 2) pb.set(x, gy + 2, P(rgb('#ffd890')));
+    // the LED board: dark cells in a thin frame
+    const board = { x: 17, y: Math.round(cy) - 4, w: 44, h: 7 };
+    for (let y = board.y - 1; y <= board.y + board.h; y++) for (let x = board.x - 1; x <= board.x + board.w; x++) {
+      const frame = y < board.y || y >= board.y + board.h || x < board.x || x >= board.x + board.w;
+      pb.set(x, y, P(frame ? rgb('#3a3448') : (x + y) % 2 ? rgb('#140c14') : rgb('#1c1018')));
+    }
+    return { c: pb.canvas(), W, H, board, beacon: [30, Math.floor(cy - R) - 1], gondola: [26, gy, 17] };
+  }
+
+  // What the blimp's sign says. Someone at the tourist board has had a night.
+  const BLIMP_LINES = [
+    'WELCOME TO MIAMI - PLEASE REMAIN TAN',
+    'LOST: ONE ALLIGATOR. ANSWERS TO ELVIS',
+    'VICE SQUAD NOW HIRING. SOCKS OPTIONAL',
+    'PASTEL IS THE NEW BLACK',
+    'HAIRSPRAY SALE! THE OZONE LAYER CAN WAIT',
+    'SHOULDER PADS - 2 FOR 1 - WIDER IS BETTER',
+    'NEW CAR PHONE! NOW ONLY 9 POUNDS',
+    'BE KIND. REWIND.',
+    'SAX SOLO IN 3... 2... 1...',
+    "EAT AT JOE'S",
+    'HONK IF YOU LOVE GATED REVERB',
+    'FORECAST: 100% CHANCE OF NEON',
+    'SUNGLASSES AT NIGHT? ALWAYS.',
+    'MULLETS: BUSINESS UP FRONT. PARTY IN THE BACK',
+    'THIS BLIMP RUNS ON SYNTHESIZERS',
+    "SLOW DOWN - YOUR HAIR CAN'T TAKE IT",
+    'FREE PERM WITH EVERY FILL-UP',
+    'THE 90S ARE JUST A RUMOR',
+    'WARNING: EXCESSIVE COOLNESS AHEAD',
+    'HAPPY HOUR: 9PM TIL SUNRISE',
+    'NO SOCKS. NO PROBLEM.',
+  ];
+
+  // Night aircraft: blinking planes high up, a helicopter sweeping a
+  // searchlight over the skyline, and now and then the joke blimp.
   class Aircraft {
     constructor(seed) {
       this.r = ND.rng(seed);
@@ -130,6 +205,18 @@
       this.nextPlane = 60 * this.r.range(15, 45);
       this.nextHeli = 60 * this.r.range(70, 140);
       this.heli = genHeli();
+      this.nextBlimp = 60 * this.r.range(20, 45);
+      this.blimp = genBlimp();
+      // each line pre-rendered as lit LEDs: amber, now and then pink or green
+      const LED = [[255, 178, 70], [255, 178, 70], [255, 110, 200], [120, 255, 150]];
+      this.lines = BLIMP_LINES.map((text, i) => {
+        const mk = ND.textMask(text, { small: true, gap: 1 });
+        const col = LED[i % LED.length];
+        const pb = new ND.PB(mk.w, mk.h);
+        for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x]) pb.set(x, y, ND.pack(col[0], col[1], col[2]));
+        return { c: pb.canvas(), w: mk.w };
+      });
+      this.deck = [];
       this.searchBeam = (() => {
         // narrow vertical cone, apex at top-centre: a bright core that the
         // haze scatters into soft edges, fading out with distance
@@ -162,8 +249,31 @@
         ND.bus.emit('heli');
         this.nextHeli = tick + 60 * r.range(150, 320);
       }
-      for (const it of this.items) it.x += it.vx;
-      this.items = this.items.filter((it) => it.x > -60 && it.x < W + 60);
+      if (tick >= this.nextBlimp) {
+        // grounded in a storm, and there's only one
+        if (weather.v.storm < 0.3 && !this.items.some((it) => it.kind === 'blimp')) {
+          const dir = r() < 0.5 ? -1 : 1;
+          this.items.push({ kind: 'blimp', x: dir < 0 ? W + 4 : -this.blimp.W - 4, y: r.int(40, 54), vx: dir * r.range(0.14, 0.2) + 0.05, ph: r() * 100, dir, line: this.nextLine(), scroll: 0 });
+          ND.bus.emit('blimp');
+        }
+        this.nextBlimp = tick + 60 * r.range(150, 300);
+      }
+      for (const it of this.items) {
+        it.x += it.vx;
+        if (it.kind === 'blimp' && (it.scroll += 0.45) > this.lines[it.line].w + this.blimp.board.w + 16) {
+          it.line = this.nextLine();
+          it.scroll = 0;
+        }
+      }
+      this.items = this.items.filter((it) => it.x > (it.kind === 'blimp' ? -this.blimp.W - 10 : -60) && it.x < W + 60);
+    }
+    // the sign's lines in a shuffled order, none repeated until all have run
+    nextLine() {
+      if (!this.deck.length) {
+        this.deck = this.lines.map((_, i) => i);
+        for (let i = this.deck.length - 1; i > 0; i--) { const j = Math.floor(this.r() * (i + 1)); [this.deck[i], this.deck[j]] = [this.deck[j], this.deck[i]]; }
+      }
+      return this.deck.pop();
     }
     draw(R, kind, weather) {
       const { c, g, tick } = R;
@@ -171,7 +281,34 @@
         if (it.kind !== kind) continue;
         const x = Math.round(it.x), y = Math.round(it.y);
         const t = tick + it.ph * 60;
-        if (kind === 'plane') {
+        if (kind === 'blimp') {
+          const B = this.blimp, bd = B.board, flip = it.dir > 0;
+          c.save();
+          if (flip) { c.translate(x + B.W, y); c.scale(-1, 1); c.drawImage(B.c, 0, 0); } else c.drawImage(B.c, x, y);
+          c.restore();
+          // the sign reads left to right whichever way she flies
+          const bx = x + (flip ? B.W - bd.x - bd.w : bd.x), by = y + bd.y;
+          const L = this.lines[it.line], tx = bx + bd.w - Math.floor(it.scroll);
+          for (const [ctx, a] of [[c, 1], [g, 0.85]]) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(bx, by, bd.w, bd.h);
+            ctx.clip();
+            ctx.globalAlpha = a;
+            ctx.drawImage(L.c, tx, by + 1);
+            ctx.restore();
+          }
+          g.fillStyle = 'rgba(255,170,90,0.12)';
+          g.fillRect(bx - 2, by - 2, bd.w + 4, bd.h + 4);
+          const gx = x + (flip ? B.W - B.gondola[0] - B.gondola[2] : B.gondola[0]);
+          g.fillStyle = 'rgba(255,216,144,0.5)';
+          g.fillRect(gx + 2, y + B.gondola[1] + 2, B.gondola[2] - 4, 1);
+          if (t % 90 < 8) {
+            const [ax, ay] = B.beacon, bx0 = x + (flip ? B.W - 1 - ax : ax);
+            c.fillStyle = '#ff3040'; c.fillRect(bx0, y + ay, 1, 1);
+            g.fillStyle = 'rgba(255,40,60,0.9)'; g.fillRect(bx0 - 1, y + ay - 1, 3, 3);
+          }
+        } else if (kind === 'plane') {
           c.fillStyle = '#1a1430';
           c.fillRect(x - 2, y, 5, 1);
           const strobe = t % 80 < 3, beacon = t % 64 < 8;

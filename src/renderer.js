@@ -120,7 +120,7 @@
 
       this.carC = ND.canvas(ND.HERO.W, ND.HERO.H);
       this.carX = ND.ctx(this.carC);
-      this.trafC = ND.canvas(162, 48);
+      this.trafC = ND.canvas(ND.TRAFFIC.W, ND.TRAFFIC.H);
       this.trafX = ND.ctx(this.trafC);
 
       this.road = makeRoadTexture(world.seed + 3);
@@ -234,6 +234,7 @@
       w.air.draw(R, 'plane', wx);
       w.air.draw(R, 'heli', wx); // far away: the skyline and the street hide it and its beam
       this.drawSkyline(R);
+      w.air.draw(R, 'blimp', wx); // over the city: in front of the skyline, behind the street
       this.drawBuildings(R);
       this.drawSidewalk(R);
       this.drawStreetLife(R);
@@ -592,7 +593,7 @@
         tx.clearRect(0, 0, S.w, S.h);
         tx.drawImage(S.body.c, 0, 0);
         const fr = 3 - (Math.floor(car.wa) % 4); // counter-clockwise, like the hero's wheels
-        for (const [wx, wy] of S.wheels) tx.drawImage(S.wheelFrames[fr], wx - 10, wy - 10);
+        for (const [wx, wy] of S.wheels) tx.drawImage(S.wheelFrames[fr], wx - S.wheelR, wy - S.wheelR);
         const y = Y.FAR - S.ground;
         // headlight beam ahead, brake-light glow behind (lighting the wet road)
         const air = 0.05 + 0.45 * Math.max(R.weather.v.rain, R.weather.v.fog * 0.8);
@@ -602,13 +603,13 @@
         c0.drawImage(this.fx.tBeamGround, x - 128, Y.FAR - 6);
         c0.drawImage(this.fx.redPool, x + S.w - 34, Y.FAR - 5);
         c0.globalAlpha = air;
-        c0.drawImage(this.fx.tBeamAir, x - 128, y + 24 - 9);
+        c0.drawImage(this.fx.tBeamAir, x - 128, y + S.lampY - 9);
         c0.globalAlpha = 1;
         c0.globalCompositeOperation = 'source-over';
         this.g.globalAlpha = 0.3;
         this.g.drawImage(this.fx.tBeamGround, x - 128, Y.FAR - 6);
         this.g.globalAlpha = air * 0.6;
-        this.g.drawImage(this.fx.tBeamAir, x - 128, y + 24 - 9);
+        this.g.drawImage(this.fx.tBeamAir, x - 128, y + S.lampY - 9);
         this.g.globalAlpha = 1;
         this.reflect(this.trafC, x, Y.FAR, S.h, 0.3, R.t, 30);
         this.c.drawImage(this.trafC, x, y);
@@ -617,10 +618,11 @@
         if (S.bar) {
           const on = Math.floor(R.t * 6) % 2;
           const col = on ? '#ff2040' : '#3060ff';
+          const half = S.bar.w >> 1, bx = x + S.bar.x + (on ? 0 : S.bar.w - half), by = y + S.bar.y;
           this.c.fillStyle = col;
-          this.c.fillRect(x + S.bar.x + (on ? 0 : 10), y + S.bar.y, 10, 3);
+          this.c.fillRect(bx, by, half, S.bar.h - 1);
           this.g.fillStyle = col;
-          this.g.fillRect(x + S.bar.x + (on ? -4 : 8), y + S.bar.y - 2, 14, 7);
+          this.g.fillRect(bx - 3, by - 2, half + 6, S.bar.h + 4);
         }
         // tail light streak on the wet road
         this.g.fillStyle = 'rgba(255,30,50,0.35)';

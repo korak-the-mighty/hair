@@ -451,12 +451,15 @@
   }
 
   // ===========================================================================
-  // Traffic — 70s–80s American cars at background-lane scale, facing left:
-  // full-size sedans, personal-luxury coupes with padded vinyl roofs, a Trans
-  // Am, a woodie wagon, a square-body pickup, a Checker cab and a cruiser.
-  // Sprite 162 x 48, ground contact on row 47, wheel centres on row 37.
+  // Traffic — 70s–80s American cars in the far lane, facing left: full-size
+  // sedans, personal-luxury coupes with padded vinyl roofs, a Trans Am, a
+  // woodie wagon, a square-body pickup, a Checker cab and a cruiser.
+  // The models are laid out on a 162 x 48 design grid and drawn K = 1.25 times
+  // that, so a sedan's roof comes up to the head of someone walking past.
+  // Sprite 203 x 60, ground contact on row 59, wheel centres on row 46.
   // ===========================================================================
-  const TW = 162, TH = 48, TG = 47, WY = 37, ARCH = 11.2;
+  const K = 1.25;
+  const TW = Math.ceil(162 * K), TH = 60, TG = 59, WY = 46, WR = 13, ARCH = 14.6;
   const MODELS = {
     // '77–'90 full-size sedan (Caprice, LTD): flat hood and deck, formal roof
     sedan: {
@@ -519,15 +522,17 @@
     return top[top.length - 1][1];
   }
 
-  // Wheels: 4 frames of a spinning 21 px wheel in the car's period style.
+  // Wheels: 4 frames of a spinning 27 px wheel in the car's period style.
+  // Distances are measured in the design grid's 21 px wheel.
   function genTrafficWheels(style, ww) {
     const P = (c) => ND.pack(c[0], c[1], c[2]);
     const sym = { cover: 8, wire: 16, snowflake: 10, dogdish: 5, rally: 6 }[style];
+    const S = WR * 2 + 1, u = 10 / WR;
     const frames = [];
     for (let f = 0; f < 4; f++) {
-      const pb = new ND.PB(21, 21);
-      for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) {
-        const d = Math.hypot(x - 10, y - 10), a = Math.atan2(y - 10, x - 10);
+      const pb = new ND.PB(S, S);
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const d = Math.hypot(x - WR, y - WR) * u, a = Math.atan2(y - WR, x - WR);
         if (d > 10.1) continue;
         const lit = 0.5 - 0.5 * Math.cos(a + 2.3); // lit from the upper left
         const spin = a - (f / 4) * ((Math.PI * 2) / sym);
@@ -577,39 +582,44 @@
     const upper = M.twoTone ? rgb('#eeeae0') : null;
     const pb = new ND.PB(TW, TH), gl = new ND.PB(TW, TH);
     const P = (c) => ND.pack(c[0], c[1], c[2]);
-    const [fx, rx] = M.wheels;
-    const rocker = M.rocker;
+    // design grid -> sprite pixels
+    const s = (v) => v * K, n = (v) => Math.round(v * K);
+    const sp = (pts) => pts.map(([x, y]) => [x * K, y * K]);
+    const top = sp(M.top), windows = M.windows.map(sp);
+    const belt = s(M.belt), rocker = n(M.rocker), trim = M.trim && n(M.trim);
+    const wheels = M.wheels.map(n);
+    const X0 = n(6), X1 = n(156); // where the side trim runs
     // wheel openings: round on the older and sportier cars, squarish on the boxes
     const inArch = (x, y) => {
-      for (const wx of M.wheels) {
-        const dx = Math.abs(x + 0.5 - wx) / ARCH, dy = (WY - y - 0.5) / ARCH;
+      for (const wx of wheels) {
+        const dx = Math.abs(x - wx) / ARCH, dy = (WY - y) / ARCH;
         if (dx <= 1 && (dy <= 0 || Math.pow(dx, M.square) + Math.pow(dy, M.square) <= 1)) return true;
       }
       return false;
     };
-    const inWindow = (x, y) => M.windows.some((w) => { let inside = false; for (let i = 0, j = w.length - 1; i < w.length; j = i++) { const a = w[i], b = w[j]; if ((a[1] > y) !== (b[1] > y) && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside; } return inside; });
-    const pts = M.top.slice();
-    pts.push([161, rocker - 3], [158, rocker], [3, rocker], [0, rocker - 3]);
+    const inWindow = (x, y) => windows.some((w) => { let inside = false; for (let i = 0, j = w.length - 1; i < w.length; j = i++) { const a = w[i], b = w[j]; if ((a[1] > y) !== (b[1] > y) && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside; } return inside; });
+    const pts = top.slice();
+    pts.push([s(161), rocker - 3], [s(158), rocker], [s(3), rocker], [0, rocker - 3]);
     // ---- paint
     pb.polyFn(pts, (x, y) => {
       if (inArch(x, y)) return;
-      const ty = topAt(M.top, x + 0.5), dt = y - ty;
+      const ty = topAt(top, x + 0.5), dt = y - ty;
       let c;
-      if (y < M.belt) c = vinyl && x >= M.vinylFrom ? vinyl : base; // pillars and roof
+      if (y < belt) c = vinyl && x >= s(M.vinylFrom) ? vinyl : base; // pillars and roof
       else {
-        const t = ND.clamp((y - M.belt) / (rocker - M.belt), 0, 1);
-        c = upper && y < M.belt + 5 ? upper : base;
+        const t = ND.clamp((y - belt) / (rocker - belt), 0, 1);
+        c = upper && y < belt + 6 ? upper : base;
         c = ND.scale(c, 1.16 - t * 0.55);
-        if (y === Math.floor(M.belt) + 1) c = ND.scale(c, 1.25); // the shoulder catches the light
+        if (y === Math.floor(belt) + 1) c = ND.scale(c, 1.25); // the shoulder catches the light
         c = ND.mix(c, [255, 120, 220], 0.08 * (1 - t));
         c = ND.mix(c, [110, 190, 255], 0.1 * t);
       }
       if (dt < 1.2) c = ND.mix(ND.scale(c, 1.45), [255, 205, 240], 0.3); // lit top edge
-      if (vinyl && x >= M.vinylFrom && y < M.belt && (x * 7 + y * 3) % 5 === 0) c = ND.scale(c, 0.9); // grain
+      if (vinyl && x >= s(M.vinylFrom) && y < belt && (x * 7 + y * 3) % 5 === 0) c = ND.scale(c, 0.9); // grain
       pb.dset(x, y, c, 255, 8);
     });
     // arch interiors
-    for (const wx of M.wheels) pb.discFn(wx, WY, ARCH, (x, y) => { if (y <= rocker && inArch(x, y) && pb.alpha(x, y) === 0) pb.set(x, y, P(rgb('#0e0a14'))); });
+    for (const wx of wheels) pb.discFn(wx, WY, ARCH, (x, y) => { if (y <= rocker && inArch(x, y) && pb.alpha(x, y) === 0) pb.set(x, y, P(rgb('#0e0a14'))); });
     for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) {
       if (!inArch(x, y) || y > rocker - 1) continue;
       if (!inArch(x, y - 1) && pb.alpha(x, y - 1)) pb.set(x, y - 1, P(ND.scale(base, 0.55))); // arch lip
@@ -618,94 +628,107 @@
     // ---- glass, with the people inside
     pb.polyFn(pts, (x, y) => {
       if (!inWindow(x + 0.5, y + 0.5)) return;
-      let c = ND.mix(rgb('#3c3270'), rgb('#120e24'), ND.clamp((y - 8) / 11, 0, 1));
-      if ((x + y * 2) % 19 < 2) c = ND.mix(c, rgb('#b0a0e0'), 0.3);
+      let c = ND.mix(rgb('#3c3270'), rgb('#120e24'), ND.clamp((y - s(8)) / s(11), 0, 1));
+      if ((x + y * 2) % 24 < 2) c = ND.mix(c, rgb('#b0a0e0'), 0.3);
       pb.set(x, y, P(c));
     });
-    for (const hx of M.heads) {
-      const hy = M.belt - 6.5;
-      pb.discFn(hx, hy, 2.6, (x, y) => { if (inWindow(x + 0.5, y + 0.5)) pb.set(x, y, P(rgb('#241a2a'))); });
-      for (let y = Math.round(hy + 2); y < M.belt; y++) for (let x = hx - 3; x <= hx + 3; x++) if (inWindow(x + 0.5, y + 0.5)) pb.set(x, y, P(rgb('#1e1624')));
+    for (const hx of M.heads.map(s)) {
+      const hy = belt - s(6.5);
+      pb.discFn(hx, hy, s(2.6), (x, y) => { if (inWindow(x + 0.5, y + 0.5)) pb.set(x, y, P(rgb('#241a2a'))); });
+      for (let y = Math.round(hy + 2.5); y < belt; y++) for (let x = Math.round(hx - 4); x <= hx + 4; x++) if (inWindow(x + 0.5, y + 0.5)) pb.set(x, y, P(rgb('#1e1624')));
     }
     // chrome window sill along the beltline
     for (let x = 0; x < TW; x++) {
-      const y = Math.floor(M.belt);
+      const y = Math.floor(belt);
       if (inWindow(x + 0.5, y - 0.5)) pb.set(x, y, P(rgb('#d8d8ea')));
     }
     // ---- body details
     const chrome = (x, y, k = 1) => pb.set(x, y, P(ND.scale(rgb('#dcdcee'), k)));
-    for (const dx of M.doors) for (let y = Math.ceil(M.belt) + 1; y < rocker - 1; y++) if (!inArch(Math.round(dx), y)) pb.set(Math.round(dx), y, P(ND.scale(base, 0.62)));
-    for (const dx of M.doors) chrome(Math.round(dx) - 4, Math.ceil(M.belt) + 3), chrome(Math.round(dx) - 3, Math.ceil(M.belt) + 3);
-    if (M.trim) for (let x = 6; x < 156; x++) {
-      if (inArch(x, M.trim) || inArch(x, M.trim + 1)) continue;
-      chrome(x, M.trim, 0.95);
-      pb.set(x, M.trim + 1, P(rgb('#2a2434')));
+    const doors = M.doors.map(n);
+    for (const dx of doors) for (let y = Math.ceil(belt) + 1; y < rocker - 1; y++) if (!inArch(dx, y)) pb.set(dx, y, P(ND.scale(base, 0.62)));
+    for (const dx of doors) for (let x = dx - 6; x <= dx - 4; x++) chrome(x, Math.ceil(belt) + 4); // door handles
+    if (trim) for (let x = X0; x < X1; x++) {
+      if (inArch(x, trim) || inArch(x, trim + 1)) continue;
+      chrome(x, trim, 0.95);
+      pb.set(x, trim + 1, P(rgb('#2a2434')));
     }
-    for (let x = 6; x < 156; x++) if (!inArch(x, rocker - 1)) chrome(x, rocker - 1, 0.75); // rocker moulding
-    if (M.opera) pb.discFn(M.opera[0], M.opera[1], 1.8, (x, y) => pb.set(x, y, P(rgb('#bcb4e0'))));
-    if (M.ornament) { chrome(3, 19); chrome(3, 18); pb.set(3, 17, P(rgb('#fff6d8'))); }
+    for (let x = X0; x < X1; x++) if (!inArch(x, rocker - 1)) chrome(x, rocker - 1, 0.75); // rocker moulding
+    if (M.opera) pb.discFn(s(M.opera[0]), s(M.opera[1]), s(1.8), (x, y) => pb.set(x, y, P(rgb('#bcb4e0'))));
+    if (M.ornament) { // stand-up hood ornament
+      const oy = Math.ceil(topAt(top, 4.5) - 0.5);
+      chrome(4, oy - 1); chrome(4, oy - 2); chrome(4, oy - 3); pb.set(4, oy - 4, P(rgb('#fff6d8')));
+    }
     if (M.rack) {
-      for (let x = M.rack[0]; x <= M.rack[1]; x++) chrome(x, 6, 0.8);
-      for (let x = M.rack[0]; x <= M.rack[1]; x += 13) chrome(x, 7, 0.6);
+      const ry = Math.ceil(s(7.8) - 0.5); // the first roof row
+      for (let x = n(M.rack[0]); x <= n(M.rack[1]); x++) chrome(x, ry - 3, 0.8);
+      for (let x = n(M.rack[0]); x <= n(M.rack[1]); x += 16) { chrome(x, ry - 2, 0.6); chrome(x, ry - 1, 0.5); }
     }
     if (M.bed) { // the open bed: rail on top, the far side's inner wall just visible
-      for (let x = M.bed[0]; x < M.bed[1]; x++) { chrome(x, 17, 0.7); pb.set(x, 16, P(ND.scale(base, 0.5))); }
+      const by = Math.ceil(s(17.5) - 0.5);
+      for (let x = n(M.bed[0]); x < n(M.bed[1]); x++) { chrome(x, by - 1, 0.7); pb.set(x, by - 2, P(ND.scale(base, 0.5))); }
     }
     if (M.wood) { // wood-grain panel with a light surround
-      for (let y = 21; y <= 33; y++) for (let x = 6; x < 156; x++) {
+      const y0 = n(21), y1 = n(33);
+      for (let y = y0; y <= y1; y++) for (let x = X0; x < X1; x++) {
         if (inArch(x, y) || inArch(x - 1, y) || inArch(x + 1, y) || inArch(x, y + 1)) continue;
-        const edge = y === 21 || y === 33 || x === 6 || x === 155 || inArch(x - 2, y) || inArch(x + 2, y) || inArch(x, y + 2);
-        const grain = Math.sin(x * 0.33 + Math.sin(y * 1.9 + x * 0.05) * 1.6) > 0.35;
+        const edge = y === y0 || y === y1 || x === X0 || x === X1 - 1 || inArch(x - 2, y) || inArch(x + 2, y) || inArch(x, y + 2);
+        const grain = Math.sin((x / K) * 0.33 + Math.sin((y / K) * 1.9 + (x / K) * 0.05) * 1.6) > 0.35;
         const c = edge ? rgb('#d4b07a') : ND.mix(rgb('#8a5328'), rgb('#5e3418'), grain ? 0.7 : 0);
-        pb.dset(x, y, ND.scale(c, 1.05 - (y - 21) * 0.025), 255, 6);
+        pb.dset(x, y, ND.scale(c, 1.05 - (y - y0) * 0.02), 255, 6);
       }
     }
     if (M.scoop) { // shaker hood scoop
-      for (let x = M.scoop[0]; x <= M.scoop[1]; x++) for (let y = 19; y <= 21; y++) pb.set(x, y, P(y === 19 ? rgb('#8c8ca4') : rgb('#16121c')));
+      for (let x = n(M.scoop[0]); x <= n(M.scoop[1]); x++) for (let y = n(19); y <= n(19) + 3; y++) pb.set(x, y, P(y === n(19) ? rgb('#8c8ca4') : rgb('#16121c')));
     }
-    if (M.airdam) for (let x = 1; x < 24; x++) for (let y = 32; y <= 34; y++) pb.set(x, y, P(rgb('#141018')));
+    if (M.airdam) for (let x = 1; x < n(24); x++) for (let y = n(32); y <= n(34); y++) pb.set(x, y, P(rgb('#141018')));
     if (M.stripe) { // pinstripe, gold on black
       const sc = base[0] < 60 ? rgb('#e0b44a') : ND.scale(base, 0.5);
-      for (let x = 8; x < 150; x++) if (!inArch(x, M.belt + 2)) pb.set(x, Math.round(M.belt) + 2, P(sc));
+      const y = Math.round(belt) + 3;
+      for (let x = n(8); x < n(150); x++) if (!inArch(x, y)) pb.set(x, y, P(sc));
     }
     // ---- bumpers: chrome with a black rubber strip, wrapping the corners
     const BUMP = ['#f2f2fa', '#cfd2e6', '#9aa0c0', '#d6d8ec', '#2a2634', '#b0b4cc', '#7c80a0', '#54587a'].map(rgb);
-    if (M.bumpers) for (let i = 0; i < BUMP.length; i++) {
-      for (let x = 0; x <= 5; x++) pb.set(x, 26 + i, P(ND.scale(BUMP[i], 1 - x * 0.03)));
-      for (let x = 155; x <= 161; x++) pb.set(x, 26 + i, P(ND.scale(BUMP[i], 0.9 + (x - 155) * 0.02)));
-    } else for (let y = 27; y <= 31; y++) { pb.set(0, y, P(ND.scale(base, 0.7))); pb.set(161, y, P(ND.scale(base, 0.6))); }
+    if (M.bumpers) for (let y = n(26); y < n(34); y++) {
+      const b = BUMP[ND.clamp(Math.floor((y + 0.5) / K) - 26, 0, BUMP.length - 1)];
+      for (let x = 0; x <= n(5); x++) pb.set(x, y, P(ND.scale(b, 1 - (x / K) * 0.03)));
+      for (let x = n(155); x < TW - 1; x++) pb.set(x, y, P(ND.scale(b, 0.9 + ((x - n(155)) / K) * 0.02)));
+    } else for (let y = n(27); y <= n(31); y++) { pb.set(0, y, P(ND.scale(base, 0.7))); pb.set(TW - 2, y, P(ND.scale(base, 0.6))); }
     // ---- lights (on: it's night)
     const lamp = (x, y, c, g) => { pb.set(x, y, P(c)); gl.set(x, y, ND.pack(g[0], g[1], g[2])); };
-    const hy = kind === 'muscle' ? 25 : Math.round(topAt(M.top, 2)) + 1;
-    for (let y = hy; y < hy + 4; y++) for (let x = 0; x <= 2; x++) if (y !== hy + 2 || kind === 'muscle') lamp(x, y, rgb('#fff6da'), [255, 240, 200]);
-    if (kind !== 'muscle') lamp(5, hy + 4, rgb('#ffa21e'), [200, 120, 20]); // amber marker
-    const ty0 = Math.max(19, Math.round(topAt(M.top, 159)) + 1);
-    for (let y = ty0; y < 26; y++) for (let x = 158; x <= 161; x++) {
+    const hy = kind === 'muscle' ? n(25) : Math.round(topAt(top, 2.5)) + 1;
+    for (let y = hy; y < hy + 5; y++) for (let x = 0; x <= 3; x++) if (y !== hy + 2 || kind === 'muscle') lamp(x, y, rgb('#fff6da'), [255, 240, 200]);
+    if (kind !== 'muscle') { lamp(6, hy + 5, rgb('#ffa21e'), [200, 120, 20]); lamp(7, hy + 5, rgb('#ffa21e'), [200, 120, 20]); } // amber marker
+    const ty0 = Math.max(n(19), Math.round(topAt(top, s(159))) + 1);
+    for (let y = ty0; y < n(26); y++) for (let x = n(158); x < TW - 1; x++) {
       const louvre = kind === 'muscle' && y % 2 === 0;
       lamp(x, y, louvre ? rgb('#5a0c16') : rgb('#ff2a3c'), louvre ? [60, 6, 12] : [255, 30, 50]);
     }
-    lamp(151, 24, rgb('#e0203a'), [140, 16, 28]); // red side marker
+    lamp(n(151), n(24), rgb('#e0203a'), [140, 16, 28]); lamp(n(151) + 1, n(24), rgb('#e0203a'), [140, 16, 28]); // red side marker
     // ---- the specials
     let bar = null;
+    const roofRow = Math.ceil(Math.min(...top.map((p) => p[1])) - 0.5); // first row of the roof
     if (special === 'taxi') {
-      for (let x = 5; x < 157; x++) for (let y = 23; y <= 24; y++) if (!inArch(x, y)) pb.set(x, y, P(((x >> 1) + y) % 2 ? rgb('#141018') : rgb('#f4f2ea')));
-      pb.rect(76, 2, 14, 5, P(rgb('#ffe890')));
-      for (let x = 76; x < 90; x++) for (let y = 2; y < 7; y++) gl.set(x, y, ND.pack(200, 170, 70));
+      for (let x = n(5); x < n(157); x++) for (let y = n(23); y <= n(23) + 1; y++) if (!inArch(x, y)) pb.set(x, y, P(((x >> 1) + y) % 2 ? rgb('#141018') : rgb('#f4f2ea')));
+      const sx = n(76), sw = 18, sh = 7, sy = roofRow - sh;
+      pb.rect(sx, sy, sw, sh, P(rgb('#ffe890')));
+      for (let x = sx; x < sx + sw; x++) for (let y = sy; y < sy + sh; y++) gl.set(x, y, ND.pack(200, 170, 70));
       const mk = ND.textMask('TAXI', { small: true, gap: 0 });
-      for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x] && y < 5) pb.set(77 + x, 2 + y, P(rgb('#402808')));
+      for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x]) pb.set(sx + 3 + x, sy + 1 + y, P(rgb('#402808')));
     }
     if (special === 'police') {
-      for (let y = Math.ceil(M.belt) + 1; y < rocker - 1; y++) for (let x = 52; x < 112; x++) if (!inArch(x, y) && y !== M.trim && y !== M.trim + 1) pb.set(x, y, P(ND.scale(rgb('#eeeef4'), 1.05 - (y - M.belt) * 0.02)));
+      for (let y = Math.ceil(belt) + 1; y < rocker - 1; y++) for (let x = n(52); x < n(112); x++) if (!inArch(x, y) && y !== trim && y !== trim + 1) pb.set(x, y, P(ND.scale(rgb('#eeeef4'), 1.05 - (y - belt) * 0.016)));
       const mk = ND.textMask('POLICE', { small: true, gap: 1 });
-      for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x]) pb.set(58 + x, 21 + y, P(rgb('#16161e')));
-      pb.rect(73, 5, 20, 3, P(rgb('#2a2a3a')));
-      chrome(58, 15); chrome(59, 15); // A-pillar spotlight
-      bar = { x: 73, y: 5, w: 20 };
+      for (let y = 0; y < mk.h; y++) for (let x = 0; x < mk.w; x++) if (mk.m[y * mk.w + x]) pb.set(n(58) + x, Math.ceil(belt) + 3 + y, P(rgb('#16161e')));
+      bar = { x: n(73), y: roofRow - 4, w: 26, h: 4 };
+      pb.rect(bar.x, bar.y, bar.w, bar.h, P(rgb('#2a2a3a')));
+      chrome(n(58), n(15)); chrome(n(58) + 1, n(15)); // A-pillar spotlight
     }
     return {
       body: ND.sprite(pb, gl),
-      wheels: [[fx, WY], [rx, WY]],
+      wheels: wheels.map((x) => [x, WY]),
+      wheelR: WR,
       wheelFrames: genTrafficWheels(M.wheel, M.ww && !special),
+      lampY: hy + 2,
       bar,
       w: TW,
       h: TH,
@@ -743,4 +766,5 @@
   ND.genWheelFrames = genWheelFrames;
   ND.genTraffic = genTraffic;
   ND.HERO = { W: HW, H: HH, WHEELS, WHEEL_R, topY };
+  ND.TRAFFIC = { W: TW, H: TH };
 })();

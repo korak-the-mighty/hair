@@ -505,7 +505,7 @@
       const avail = groundY - roofY - 22;
       const nmax = Math.floor((avail - 12 + 4) / 18);
       const mode = r();
-      if (mode < 0.5 && spec.name.length <= nmax) {
+      if (mode < 0.5 && spec.name.length <= nmax && !spec.name.includes(' ')) {
         spec.blade = spec.name;
         spec.bladeLetters = r.pick(['cyan', 'white', 'pink', 'yellow']);
         spec.bladeBorder = r.pick(['blue', 'pink', 'magenta', 'cyan', 'purple']);
@@ -747,7 +747,7 @@
       return [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85, 0.55];
     }, 0.55);
     F.light(ax0, ay + 5, ax1, ay + 5, arrowCol, 1.2, 18);
-    const arrowText = r.pick(['OPEN', 'TV', 'POOL', 'COLOR TV']);
+    const arrowText = r.pick(['OPEN', 'TV', 'POOL', 'COLOR TV', 'WATERBEDS', 'FREE ICE', 'CABLE TV', 'NO DISCO']);
     const am = ND.textMask(arrowText, { small: true, gap: 1 });
     F.post.push(() => {
       const tx = Math.round(ax0 + 12 + (ax1 - ax0 - 12 - am.w) / 2), ty = ay + 3;
@@ -768,7 +768,8 @@
     // vacancy
     const vy = ay + 18;
     const [vc, vt] = ND.NEON.red;
-    const vm = ND.textMask(r.chance(0.6) ? 'VACANCY' : 'NO VACANCY', { small: true, gap: 1 });
+    const vr = r();
+    const vm = ND.textMask(vr < 0.45 ? 'VACANCY' : vr < 0.75 ? 'NO VACANCY' : vr < 0.9 ? 'MAYBE VACANCY' : 'VACANCY-ISH', { small: true, gap: 1 });
     F.emit(px - 4, vy - 2, vm.w + 4, vm.h + 4, [30, 10, 20], 0);
     const flick = { type: 'flicker', x: px - 3, y: vy - 1, w: vm.w + 2, h: vm.h + 2, rate: 0.15, seed: r() * 100, slow: true };
     F.post.push(() => {
@@ -823,9 +824,14 @@
 
   ND.NAMES = {
     hotel: ['OCEAN', 'LUNA', 'STARLITE', 'PALMS', 'CORAL', 'NEPTUNE', 'AVALON', 'SUNSET', 'TROPICS', 'MARLIN', 'FLAMINGO',
-      'PARADISE', 'BREEZE', 'ORCHID', 'SHORE', 'LAGUNA', 'AZURE', 'CABANA', 'NOVA', 'RIVIERA', 'SEABIRD', 'MOONLITE', 'DELMAR', 'ISLA'],
-    bar: ['BAR', 'CLUB', 'DISCO', 'LOUNGE', 'JAZZ', 'COCKTAILS', 'TIKI', 'NEON', 'SALSA', 'RUMBA', 'MAMBO', 'VICE'],
-    shop: ['LIQUOR', 'PIZZA', 'VIDEO', 'ARCADE', 'DINER', 'CAFE', 'MUSIC', 'RECORDS', 'TATTOO', 'DONUTS', 'SURF', 'CUBAN', 'GELATO', 'TACOS', 'ARCADE 24H'],
+      'PARADISE', 'BREEZE', 'ORCHID', 'SHORE', 'LAGUNA', 'AZURE', 'CABANA', 'NOVA', 'RIVIERA', 'SEABIRD', 'MOONLITE', 'DELMAR', 'ISLA',
+      // the Miami Vice gag reel
+      'MIAMI NICE', 'SUNBURN', 'NO SOCKS', 'BIG HAIR', 'SPF 2', 'THE MULLET', 'TAN LINES', 'EL TACKY', 'GATOR ARMS'],
+    bar: ['BAR', 'CLUB', 'DISCO', 'LOUNGE', 'JAZZ', 'COCKTAILS', 'TIKI', 'NEON', 'SALSA', 'RUMBA', 'MAMBO', 'VICE',
+      'SAX SOLO', 'KEYTAR', 'SYNTH & TONIC', 'MOONWALK', 'PINA COLADA', 'STAKEOUT', 'UNDERCOVER', "CROCKETT'S"],
+    shop: ['LIQUOR', 'PIZZA', 'VIDEO', 'ARCADE', 'DINER', 'CAFE', 'MUSIC', 'RECORDS', 'TATTOO', 'DONUTS', 'SURF', 'CUBAN', 'GELATO', 'TACOS', 'ARCADE 24H',
+      'BE KIND REWIND', 'NIGHT SHADES', 'PERMS 4 LESS', 'HAIRSPRAY 24H', 'LEG WARMERS', 'CAR PHONES', 'MIXTAPES', 'SHOULDER PADS', 'PASTEL SUITS', 'TAN-O-RAMA'],
+    motel: ['INN', 'LODGE', 'MOTOR', 'SNORE', 'ZZZ'],
   };
 
   ND.BUILDING_GEN = { hotel: genHotel, bar: genBar, shop: genShop, motel: genMotel };

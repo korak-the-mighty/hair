@@ -115,7 +115,7 @@
   const VOC_BANDS = 18, VOC_GAIN = 12, VOC_OUT = 0.75;
   // The driver won't bring the same subject up again for this long (seconds):
   // one lightning remark per storm, not one per strike.
-  const TALK_COOLDOWN = { lightning: 240, storm: 300, rain: 150, window: 400, clear: 150, mist: 150, heli: 200, smoke: 300, fast: 60, slow: 60, stop: 90 };
+  const TALK_COOLDOWN = { lightning: 240, storm: 300, rain: 150, window: 400, clear: 150, mist: 150, heli: 200, blimp: 300, smoke: 300, fast: 60, slow: 60, stop: 90 };
   // Talk box: first three formants of the vowels it "sings" through, and the
   // closed vowel every note opens from.
   const FORMANTS = { a: [730, 1090, 2440], e: [530, 1840, 2480], i: [300, 2200, 2950], o: [570, 840, 2410], u: [320, 800, 2240] };
@@ -197,8 +197,10 @@
     return ctx.createPeriodicWave(re, im);
   }
 
-  const WORDS_A = ['Midnight', 'Neon', 'Chrome', 'Velvet', 'Magenta', 'Electric', 'Crystal', 'Ocean', 'Laser', 'Violet', 'Golden', 'Satin', 'Cobalt', 'Cherry', 'Silver', 'Tropic', 'Lunar', 'Infinite', 'Silent'];
-  const WORDS_B = ['Causeway', 'Boulevard', 'Afterglow', 'Overdrive', 'Riviera', 'Mirage', 'Heatwave', 'Skyline', 'Horizon', 'Nightcall', 'Arcade', 'Coastline', 'Getaway', 'Afterhours', 'Parallel', 'Cruise', 'Satellite', 'Palms', 'Motel', 'Signal'];
+  const WORDS_A = ['Midnight', 'Neon', 'Chrome', 'Velvet', 'Magenta', 'Electric', 'Crystal', 'Ocean', 'Laser', 'Violet', 'Golden', 'Satin', 'Cobalt', 'Cherry', 'Silver', 'Tropic', 'Lunar', 'Infinite', 'Silent',
+    'Pastel', 'Sockless', 'Mullet', 'Hairspray', 'Undercover', 'Shoulder Pad', 'Permed'];
+  const WORDS_B = ['Causeway', 'Boulevard', 'Afterglow', 'Overdrive', 'Riviera', 'Mirage', 'Heatwave', 'Skyline', 'Horizon', 'Nightcall', 'Arcade', 'Coastline', 'Getaway', 'Afterhours', 'Parallel', 'Cruise', 'Satellite', 'Palms', 'Motel', 'Signal',
+    'Stakeout', 'Sax Solo', 'Car Phone', 'Montage', 'Mixtape', 'Alibi', 'Tan Line'];
 
   // ---------------------------------------------------------------------------
   // Composition
@@ -652,6 +654,7 @@
         if (tag) this.request(tag);
       });
       ND.bus.on('heli', () => this.request('heli', 20));
+      ND.bus.on('blimp', () => this.request('blimp', 30));
       ND.bus.on('arm-out', () => this.request('smoke'));
       ND.bus.on('window-up', () => this.request('window'));
       ND.bus.on('speed', (e) => this.request(e.zone, 8));

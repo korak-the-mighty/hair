@@ -141,6 +141,21 @@
     { "id": "drv-easy-does-it", "text": "Easy does it.", "tags": ["slow"], "style": "cool" },
     { "id": "drv-take-it-slow", "text": "Let's take it slow. Enjoy the view.", "tags": ["slow"], "style": "cool" },
     { "id": "drv-red-light", "text": "Red light? Nah... just enjoying the view.", "tags": ["stop"], "style": "aside" },
-    { "id": "drv-stop-right-here", "text": "Stop right here... look at this place.", "tags": ["stop"], "style": "cool" }
+    { "id": "drv-stop-right-here", "text": "Stop right here... look at this place.", "tags": ["stop"], "style": "cool" },
+    { "id": "drv-no-socks", "text": "No socks. Never socks.", "tags": ["idle"], "style": "cool" },
+    { "id": "drv-party-in-back", "text": "Business up front... party in the back.", "tags": ["idle", "smooth"], "style": "cool" },
+    { "id": "drv-car-phone", "text": "Car phone? Sure. It's in the trunk. It takes up the whole trunk.", "tags": ["idle"], "style": "aside" },
+    { "id": "drv-pastel", "text": "Pastel isn't a color. It's a lifestyle.", "tags": ["idle"], "style": "cool" },
+    { "id": "drv-cue-sax", "text": "Somebody cue the saxophone.", "tags": ["smooth"], "style": "cool" },
+    { "id": "drv-sunglasses", "text": "Sunglasses at night? Always.", "tags": ["camera"], "style": "aside" },
+    { "id": "drv-undercover", "text": "Undercover? In this car? [laughs] Sure.", "tags": ["camera"], "style": "aside" },
+    { "id": "drv-hairspray", "text": "Relax. This hair is ninety percent hairspray.", "tags": ["rain"], "style": "cool" },
+    { "id": "drv-not-a-hair", "text": "Lightning. And not one hair out of place.", "tags": ["lightning"], "style": "cool" },
+    { "id": "drv-smoke-machine", "text": "Fog... or somebody's smoke machine is on the fritz again.", "tags": ["mist"], "style": "aside" },
+    { "id": "drv-checking-car", "text": "Chopper's probably just checking out the car.", "tags": ["heli"], "style": "aside" },
+    { "id": "drv-white-leather", "text": "Easy... the seats are white leather.", "tags": ["slow"], "style": "cool" },
+    { "id": "drv-hair-minute", "text": "Red light? Good. The hair needs a minute.", "tags": ["stop"], "style": "aside" },
+    { "id": "drv-blimp-jokes", "text": "Even the blimp's got jokes tonight.", "tags": ["blimp"], "style": "aside" },
+    { "id": "drv-blimp-talking", "text": "Is that blimp... talking to me?", "tags": ["blimp"], "style": "cool" }
   ]
 }

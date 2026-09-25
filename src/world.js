@@ -232,10 +232,20 @@
       if (kind === 'motel' && this.sinceMotel < 8) kind = 'shop';
       if (kind === 'motel') this.sinceMotel = 0;
       this.lastKind = kind;
-      if (kind === 'hotel') return this.buildingItem({ kind, seed, w: r.int(170, 250), name: r() < 0.8 ? this.pickName(ND.NAMES.hotel) : null }, gap);
-      if (kind === 'bar') return this.buildingItem({ kind, seed, w: r.int(120, 170), sign: this.pickName(ND.NAMES.bar) }, gap);
-      if (kind === 'shop') return this.buildingItem({ kind, seed, w: r.int(110, 170), sign: this.pickName(ND.NAMES.shop) }, gap);
-      return this.buildingItem({ kind, seed, w: r.int(170, 220), sign: r() < 0.7 ? 'MOTEL' : this.pickName(['INN', 'LODGE', 'MOTOR']) }, gap);
+      // long names get a wider building, so the sign still fits at full size
+      if (kind === 'hotel') {
+        const w = r.int(170, 250), name = r() < 0.8 ? this.pickName(ND.NAMES.hotel) : null;
+        return this.buildingItem({ kind, seed, w: name ? Math.max(w, Math.min(250, Math.ceil((13 * name.length + 12) / 0.7))) : w, name }, gap);
+      }
+      if (kind === 'bar') {
+        const w = r.int(120, 170), sign = this.pickName(ND.NAMES.bar);
+        return this.buildingItem({ kind, seed, w: Math.max(w, Math.min(240, 12 * sign.length + 22)), sign }, gap);
+      }
+      if (kind === 'shop') {
+        const w = r.int(110, 170), sign = this.pickName(ND.NAMES.shop);
+        return this.buildingItem({ kind, seed, w: Math.max(w, Math.min(240, 12 * sign.length + 14)), sign }, gap);
+      }
+      return this.buildingItem({ kind, seed, w: r.int(170, 220), sign: r() < 0.7 ? 'MOTEL' : this.pickName(ND.NAMES.motel) }, gap);
     }
 
     gapItem(w, gap) {
@@ -342,7 +352,7 @@
       if (x == null) x = v > this.speed ? W + 30 : -sprite.w - 30;
       const P = this.D - (x - CX) / f;
       // keep a safe distance from other cars
-      for (const c of this.traffic) if (Math.abs(c.P - P) < 260) return false;
+      for (const c of this.traffic) if (Math.abs(c.P - P) < 300) return false;
       this.traffic.push({ P, v, f, sp: sprite, wa: 0 });
       return true;
     }
