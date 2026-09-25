@@ -829,7 +829,7 @@
       for (const i of which) {
         const L = layers[i];
         if (L.sheets) {
-          const ox = Math.round((R.tick * L.vx) % W), oy = Math.round((R.tick * L.vy) % H);
+          const ox = Math.round(L.ox), oy = Math.round((R.tick * L.vy) % H);
           const nSheets = this.q >= 2 ? 3 : 1;
           rc.save();
           rc.beginPath();
@@ -853,7 +853,7 @@
         rc.globalAlpha = L.a;
         for (const p of L.p) {
           if (L.impact && !inPass(p.f)) continue;
-          const s = L.sprites[p.s];
+          const s = (L.cur || L.sprites)[p.s];
           rc.drawImage(s.c, Math.round(p.x - s.ox), Math.round(p.y - s.oy));
           n++;
         }

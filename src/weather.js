@@ -186,6 +186,8 @@
           vx,
           vy: L.fall,
           sprites: [streakSprite(vx, L.fall, L.len), streakSprite(vx, L.fall, L.len - 2), streakSprite(vx, L.fall, L.len + 2)],
+          bySpeed: {}, // streaks slanted for other speeds, made as needed
+          ox: 0,
           sheets: L.sheet ? [0, 1, 2].map((k) => rainSheet(seed * 7 + li * 31 + k, L.sheet, vx, L.fall, L.len)) : null,
           p: [],
         };
@@ -200,7 +202,7 @@
         p.f = r() < 0.5 ? 1 : r.range(0.86, 1.45); // f = 1: the car's own depth
         p.floor = ND.yAt(p.f) + r.range(-1, 1);
       } else p.floor = r.range(L.floor[0], L.floor[1]);
-      p.x = r.range(-((p.f * SPEED) / L.vy) * H - 20, W + 10);
+      p.x = r.range(-((p.f * (this.speed ?? SPEED)) / L.vy) * H - 20, W + 10);
       return p;
     }
     // Droplets thrown up when a drop bursts on the car: [vx, vy] per droplet.
@@ -214,9 +216,18 @@
       for (let i = 0, n = big ? 3 : r.int(1, 3); i < n; i++) drops.push([r.range(-1.2, 1.2) * (big ? 1.5 : 1), -r.range(0.7, 1.7) * (big ? 1.4 : 1)]);
       this.splashes.push({ P: this.D - (x - CX) / f, y, f, age: 0, life: r.int(12, 20), crown: true, big, drops });
     }
-    update(w, D, hero) {
+    update(w, D, hero, speed = SPEED) {
       const rain = w.v.rain, r = this.r;
       this.D = D;
+      this.speed = speed;
+      // our motion slants the rain: the streaks match the current speed
+      const key = Math.round(speed * 2) / 2;
+      for (const L of this.layers) {
+        L.ox = (L.ox + L.f * speed) % W;
+        if (L.sheets) continue;
+        const vx = L.f * key;
+        L.cur = L.bySpeed[key] || (L.bySpeed[key] = [streakSprite(vx, L.fall, L.len), streakSprite(vx, L.fall, L.len - 2), streakSprite(vx, L.fall, L.len + 2)]);
+      }
       // age what's already splashing, so this tick's new splashes show from their first frame
       for (const s of this.splashes) s.age++;
       this.splashes = this.splashes.filter((s) => s.age < s.life);
@@ -234,7 +245,7 @@
         while (L.p.length < want) L.p.push(this.spawn(L, false));
         for (let i = L.p.length - 1; i >= 0; i--) {
           const p = L.p[i];
-          p.x += p.f * SPEED;
+          p.x += p.f * speed;
           p.y += L.vy;
           let floor = p.floor, car = false;
           if (L.impact && p.f === 1) {

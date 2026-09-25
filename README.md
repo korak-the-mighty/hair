@@ -18,6 +18,7 @@ same thing bundled into one file you can copy anywhere (rebuild it with
 
 | Key | Action |
 | --- | --- |
+| `↑` / `↓` | Speed pedal: hold to accelerate or brake (all the way to a stop); let go to hold the speed. The music keeps its own tempo. |
 | `F` / double-click | Fullscreen |
 | `M` | Music on/off (sound starts with your first click or key press) |
 | `N` | Next track |
@@ -38,7 +39,7 @@ URL options:
 - `?q=0|1|2` forces a quality level. The default is automatic.
 - `?debug` shows stats on load.
 - `?mute` keeps the soundtrack off.
-- `?style=miami|amiga|electro` plays only that soundtrack style.
+- `?style=miami|amiga|electro|noir` plays only that soundtrack style.
 - `?rec=1440p` or `?rec=4k` records at that size. The default is 1080p.
 
 Options combine with `&`, for example `?weather=storm&seed=7`.
@@ -49,7 +50,7 @@ Listen to a sample: [`docs/soundtrack-sample.webm`](docs/soundtrack-sample.webm)
 recorded before the Amiga and Electro styles and the vocals were added).
 
 An endless 80s night-drive mix, synthesised live in the browser. Every track
-is composed on the fly in one of three styles, and the style usually changes
+is composed on the fly in one of four styles, and the style usually changes
 from one track to the next:
 
 - **Miami** (108–122 BPM): four-on-the-floor disco with a gated 80s snare, an
@@ -61,6 +62,12 @@ from one track to the next:
 - **Electro** (104–118 BPM): an 808-style kit with cowbell and Simmons tom
   fills, a sequenced synth bass, brass stabs, orchestra hits, and staccato
   riffs that leap octaves.
+- **Noir** (86–96 BPM): slow, dark outrun in the spirit of Kavinsky's
+  "Nightcall" (original music and words). A gritty, driven bass pulses in
+  eighths under a huge gated snare on two and four, pads brood and swell
+  open in the choruses, and a lonely lead drifts in echo. A deep robot voice
+  tells the verses and a soft female voice answers in the choruses. No
+  snare-roll build-ups: a tom run leads into each chorus.
 
 Each track picks its key, tempo, chord loops and grooves fresh, and writes its
 own melodies: an eight-bar hook for the drops (a statement, its answer, a
@@ -99,7 +106,8 @@ The man at the wheel talks, in his own voice (ElevenLabs' Liam): thrilled,
 smooth, and aware that we're riding along. He reacts to the song (a new
 track, a build-up, the drop: "Yes! Yes! Yes!"), to the world (rain, the
 window going up, lightning, the helicopter, his cigarette going back out:
-"One for the road never hurt."), and now and then just muses ("Suave.",
+"One for the road never hurt."), to the speed pedal ("Pedal to the metal!",
+"Red light? Nah... just enjoying the view."), and now and then just muses ("Suave.",
 "Left-handed.", "Best job in the world."). Sometimes he turns to the camera
 ("Hey. Glad you're riding with me.") and nods when he's done.
 

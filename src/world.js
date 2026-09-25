@@ -3,6 +3,7 @@
   'use strict';
   const ND = window.ND;
   const { W, H, CX, Y, SPEED } = ND;
+  const MAX_SPEED = 10; // about 137 mph
 
   // ---------------------------------------------------------------------------
   // Cooperative job queue: heavy sprite generators are JS generators that yield
@@ -76,6 +77,11 @@
       this.r = ND.rng(seed);
       this.tick = 0;
       this.D = 0;
+      // the speed pedal: road pixels per tick, the target it eases towards,
+      // and the pedal itself (+1 gas, -1 brake, 0 hold the speed)
+      this.speed = this.speedTarget = SPEED;
+      this.pedal = 0;
+      this.speedZone = 'cruise';
       this.jobs = new JobQueue();
       this.buildCache = new Map();
 
@@ -305,7 +311,9 @@
       const f = ND.fAt(y);
       const dir = opts.dir || (r() < 0.5 ? 1 : -1); // +1 walks left (with traffic)
       const v = dir * r.range(0.85, 1.1) * (1 + this.weather.v.rain * 0.55);
-      const x = atX != null ? atX : -40;
+      // new walkers come in from the left while we drive; when we're stopped,
+      // from whichever side they're walking in from
+      const x = atX != null ? atX : this.speed > 1 || dir < 0 ? -40 : W + 40;
       const P = this.D - (x - CX) / f;
       const umb = opts.sprite === this.heroWalker ? -1 : r() < 0.78 ? r.int(0, 6) : -1;
       this.walkers.push({ P, v, f, y, dir, umb, sp: opts.sprite || r.pick(this.people), ph: r.int(0, 7), rate: Math.round(8 / Math.abs(v)) });
@@ -331,7 +339,7 @@
       const sprite = opts.sprite || r.pick(this.trafficPool);
       const v = opts.v != null ? opts.v : r() < 0.5 ? SPEED + r.range(0.25, 0.6) : SPEED - r.range(0.25, 0.7);
       let x = opts.x;
-      if (x == null) x = v > SPEED ? W + 30 : -sprite.w - 30;
+      if (x == null) x = v > this.speed ? W + 30 : -sprite.w - 30;
       const P = this.D - (x - CX) / f;
       // keep a safe distance from other cars
       for (const c of this.traffic) if (Math.abs(c.P - P) < 260) return false;
@@ -339,16 +347,36 @@
       return true;
     }
 
+    // --- the speed pedal ---------------------------------------------------------------
+    pedalUpdate() {
+      if (this.pedal > 0) this.speedTarget = Math.min(MAX_SPEED, this.speedTarget + 0.05);
+      else if (this.pedal < 0) this.speedTarget = Math.max(0, this.speedTarget - 0.08);
+      // the car has weight: it eases towards the target
+      this.speed += (this.speedTarget - this.speed) * 0.035;
+      if (Math.abs(this.speedTarget - this.speed) < 0.01) this.speed = this.speedTarget;
+      // tell the driver when we go fast, slow right down or stop
+      const t = this.speedTarget;
+      const zone = t >= 7 ? 'fast' : t <= 0.05 ? 'stop' : t < 2.5 ? 'slow' : 'cruise';
+      if (zone !== this.speedZone && !this.pedal) {
+        if (zone !== 'cruise') ND.bus.emit('speed', { zone });
+        this.speedZone = zone;
+      }
+      // generate street buildings further ahead when we're going faster
+      this.buildings.look = 420 * Math.max(1, this.speed / SPEED);
+    }
+    get mph() { return Math.round(this.speedTarget * 13.75); }
+
     // --- update -----------------------------------------------------------------------
     update(dtTicks = 1, init = false) {
       if (!init) {
         this.tick++;
-        this.D += SPEED;
+        this.pedalUpdate();
+        this.D += this.speed;
       }
       const D = this.D;
       if (!init) {
         this.weather.update();
-        this.rain.update(this.weather, D, this.hero);
+        this.rain.update(this.weather, D, this.hero, this.speed);
         this.air.update(this.tick, this.weather);
       }
       for (const l of this.skyLayers) l.update(D);
@@ -394,7 +422,7 @@
 
       // hero car: wheel spin, gentle suspension and drift
       const hero = this.hero;
-      hero.angle += SPEED / ND.HERO.WHEEL_R;
+      hero.angle += this.speed / ND.HERO.WHEEL_R;
       const t = this.tick / 60;
       hero.dx = Math.round(Math.sin(t * 0.13) * 5 + Math.sin(t * 0.041 + 1) * 7);
       const bump = ND.hash(Math.floor(this.tick / 97), 5) < 0.35 && this.tick % 97 < 6;
@@ -422,8 +450,9 @@
       // cigarette smoke, whisked back by the wind (car-local coordinates)
       const A = hero.arm, fr = A.frames[ND.clamp(Math.round(((hero.armTh - A.th0) / (A.th1 - A.th0)) * (A.N - 1)), 0, A.N - 1)];
       const fx = this.fxr, rain = this.weather.v.rain;
+      const wind = this.speed / SPEED; // the slipstream, relative to cruising
       if (!init && hero.armOut > 0.99) {
-        hero.smoke.push({ x: fr.tip[0], y: fr.tip[1] - 0.4, vx: 0.35 + fx() * 0.4, vy: -0.42 - fx() * 0.3, age: 0, life: (50 + fx() * 34) * (1 - rain * 0.5), ph: fx() * 6.28 });
+        hero.smoke.push({ x: fr.tip[0], y: fr.tip[1] - 0.4, vx: (0.35 + fx() * 0.4) * Math.min(1.6, wind + 0.15), vy: -0.42 - fx() * 0.3, age: 0, life: (50 + fx() * 34) * (1 - rain * 0.5), ph: fx() * 6.28 });
       }
       if (!init && hero.armOut > 0.99 && fx() < 1 / 420) {
         const n = 2 + Math.floor(fx() * 3);
@@ -433,7 +462,7 @@
         p.x += p.vx;
         p.y += p.vy + Math.sin(p.age * 0.22 + p.ph) * 0.12;
         if (!p.spark) {
-          p.vx = Math.min(1.3, p.vx + 0.02); // the slipstream catches it
+          p.vx = Math.min(1.3 * Math.min(2, wind) + 0.05, p.vx + 0.02 * wind); // the slipstream catches it
           p.vy *= 0.985;
         }
         p.age++;
@@ -441,11 +470,11 @@
       hero.smoke = hero.smoke.filter((p) => p.age < p.life);
 
       // tyres throw spray off the wet road (car-local coordinates)
-      if (!init && rain > 0.08) {
+      if (!init && rain > 0.08 && wind > 0.1) {
         for (const [wx] of ND.HERO.WHEELS) {
-          const n = rain * 5.5;
+          const n = rain * 5.5 * Math.min(1.8, wind);
           for (let k = 0; k < Math.floor(n) + (fx() < n % 1 ? 1 : 0); k++) {
-            hero.spray.push({ x: wx + 10 + fx() * 12, y: 71 + fx() * 4, vx: 1.6 + fx() * 3.6, vy: -0.7 - fx() * 1.8, age: 0, life: 12 + fx() * 18 });
+            hero.spray.push({ x: wx + 10 + fx() * 12, y: 71 + fx() * 4, vx: (1.6 + fx() * 3.6) * Math.min(1.8, wind), vy: -0.7 - fx() * 1.8, age: 0, life: 12 + fx() * 18 });
           }
         }
       }

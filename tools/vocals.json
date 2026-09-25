@@ -21,7 +21,15 @@
     { "id": "midnight-again", "voice": "him", "text": "Midnight... again.", "tags": ["outro", "break"], "style": "low" },
     { "id": "ocean-drive", "voice": "her", "text": "Ocean Drive. Two a.m.", "tags": ["intro"], "style": "breathy" },
     { "id": "dont-let-go", "voice": "her", "text": "Don't let go.", "tags": ["build", "break"], "style": "breathy" },
-    { "id": "turn-it-up", "voice": "him", "text": "Turn it up.", "tags": ["drop-in"], "style": "low" }
+    { "id": "turn-it-up", "voice": "him", "text": "Turn it up.", "tags": ["drop-in"], "style": "low" },
+    { "id": "noir-stay-with-me", "voice": "her", "text": "Stay with me tonight.", "tags": ["noir"], "style": "breathy" },
+    { "id": "noir-waiting", "voice": "her", "text": "I'll be waiting in the dark.", "tags": ["noir"], "style": "breathy" },
+    { "id": "noir-take-me", "voice": "her", "text": "Take me where the lights are.", "tags": ["noir"], "style": "breathy" },
+    { "id": "noir-you-and-me", "voice": "her", "text": "You and me... and the night.", "tags": ["noir"], "style": "breathy" },
+    { "id": "noir-morning", "voice": "her", "text": "Don't let the morning come.", "tags": ["noir"], "style": "breathy" },
+    { "id": "noir-feel-you", "voice": "her", "text": "I feel you in the dark.", "tags": ["noir"], "style": "breathy" },
+    { "id": "noir-hold-on", "voice": "her", "text": "Hold on to me.", "tags": ["noir"], "style": "breathy" },
+    { "id": "noir-never-let-go", "voice": "her", "text": "Never let me go.", "tags": ["noir"], "style": "breathy" }
   ],
   "chops": [
     { "id": "ooh", "syllable": "ooh", "prompt": "Solo female pop vocal, a cappella, one long sustained 'ooh' sung on a single steady note A4, soft and airy, no instruments, no effects, dry studio recording." },
@@ -56,7 +64,15 @@
     { "id": "robo-we-are-the-night", "voice": "him", "text": "We are the night." },
     { "id": "robo-robot-heart", "voice": "her", "text": "Robot heart." },
     { "id": "robo-turn-the-night-on", "voice": "her", "text": "Turn the night on." },
-    { "id": "robo-one-more-ride", "voice": "her", "text": "One more ride." }
+    { "id": "robo-one-more-ride", "voice": "her", "text": "One more ride." },
+    { "id": "robo-drive-all-night", "voice": "him", "text": "I drive all night.", "tags": ["noir"] },
+    { "id": "robo-night-belongs", "voice": "him", "text": "The night belongs to us.", "tags": ["noir"] },
+    { "id": "robo-follow-the-lights", "voice": "him", "text": "Follow the lights.", "tags": ["noir"] },
+    { "id": "robo-nobody-knows", "voice": "him", "text": "Nobody knows where I go.", "tags": ["noir"] },
+    { "id": "robo-under-city-lights", "voice": "him", "text": "Under the city lights.", "tags": ["noir"] },
+    { "id": "robo-hear-me-calling", "voice": "him", "text": "Can you hear me calling?", "tags": ["noir"] },
+    { "id": "robo-too-late", "voice": "him", "text": "Too late to turn back.", "tags": ["noir"] },
+    { "id": "robo-find-you", "voice": "him", "text": "I'll find you tonight.", "tags": ["noir"] }
   ],
   "driver": [
     { "id": "drv-drop-the-beat", "text": "Drop the beat.", "tags": ["drop-in"], "style": "hype" },
@@ -117,6 +133,14 @@
     { "id": "drv-hold-on-hair", "text": "Storm's rolling in. Hold on to your hair.", "tags": ["storm"], "style": "aside" },
     { "id": "drv-listen-rain", "text": "Listen to that rain.", "tags": ["rain"], "style": "cool" },
     { "id": "drv-rain-radio", "text": "Rain on the glass, music on the radio. Perfect.", "tags": ["rain"], "style": "cool" },
-    { "id": "drv-city-shining", "text": "The whole city's shining now.", "tags": ["rain"], "style": "hype" }
+    { "id": "drv-city-shining", "text": "The whole city's shining now.", "tags": ["rain"], "style": "hype" },
+    { "id": "drv-open-her-up", "text": "Let's open her up!", "tags": ["fast"], "style": "hype" },
+    { "id": "drv-pedal-metal", "text": "Pedal to the metal!", "tags": ["fast"], "style": "hype" },
+    { "id": "drv-flying", "text": "Now we're flying!", "tags": ["fast"], "style": "hype" },
+    { "id": "drv-some-kick", "text": "Oh, she's got some kick!", "tags": ["fast"], "style": "hype" },
+    { "id": "drv-easy-does-it", "text": "Easy does it.", "tags": ["slow"], "style": "cool" },
+    { "id": "drv-take-it-slow", "text": "Let's take it slow. Enjoy the view.", "tags": ["slow"], "style": "cool" },
+    { "id": "drv-red-light", "text": "Red light? Nah... just enjoying the view.", "tags": ["stop"], "style": "aside" },
+    { "id": "drv-stop-right-here", "text": "Stop right here... look at this place.", "tags": ["stop"], "style": "cool" }
   ]
 }

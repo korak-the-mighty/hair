@@ -90,6 +90,7 @@
         win = winDrops = winRender = 0;
       }
     }
+    if (world.pedal) showSpeed();
     // background generation of upcoming buildings, within the frame budget
     world.work(Math.max(1, 9 - renderMs));
     frames++;
@@ -131,7 +132,24 @@
       if (p && p.catch) p.catch(() => {});
     } catch (e) { /* fullscreen not allowed here */ }
   }
+  // the speed pedal: hold up to accelerate, down to brake; let go to hold the speed
+  let mphShown = 0;
+  function showSpeed() {
+    const now = performance.now();
+    if (now - mphShown > 200) { toast(world.speedTarget <= 0.05 ? 'stopped' : world.mph + ' mph'); mphShown = now; }
+  }
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { world.pedal = 0; toast(world.speedTarget <= 0.05 ? 'stopped' : world.mph + ' mph'); }
+  });
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      world.pedal = e.key === 'ArrowUp' ? 1 : -1;
+      e.preventDefault();
+      startSound();
+      showSpeed();
+      showHud();
+      return;
+    }
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     else if (e.key === ' ') { paused = !paused; e.preventDefault(); }
     else if (e.key === 'h' || e.key === 'H') document.body.classList.toggle('nohud');

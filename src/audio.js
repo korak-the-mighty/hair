@@ -7,7 +7,11 @@
  *   amiga   — a tracker/MOD tune: crunchy 8-bit drum samples, chords as fast
  *             chip arpeggios, squarewave leads with vibrato, slides and echo;
  *   electro — an 808-style kit with cowbell and Simmons toms, a sequenced
- *             synth bass, brass stabs, orchestra hits and staccato riffs.
+ *             synth bass, brass stabs, orchestra hits and staccato riffs;
+ *   noir    — slow, dark outrun in the spirit of Kavinsky's Nightcall: a
+ *             gritty driven bass pulsing in eighths, a huge gated snare on
+ *             two and four, brooding pads, a lonely echoing lead, a deep
+ *             robot voice in the verses and a soft female voice answering.
  * Every track follows an arc built on anticipation: intro → verse → build →
  * drop → breakdown → a longer build → the final drop with a key lift → outro.
  * A vocal pack (spoken hooks, sung chops, and robot lines sung through a
@@ -29,12 +33,15 @@
     { d: [5, 6, 2, 0] }, { d: [3, 6, 2, 5] }, { d: [0, 5, 6, 4], dom: true }, { d: [5, 4, 0, 6], dom: true },
   ];
 
-  const STYLES = ['miami', 'amiga', 'electro'];
+  const STYLES = ['miami', 'amiga', 'electro', 'noir'];
   const BPMS = {
     miami: [108, 110, 112, 114, 115, 116, 118, 120, 122],
     amiga: [118, 120, 122, 125, 125, 128],
     electro: [104, 106, 108, 110, 112, 115, 118],
+    noir: [86, 88, 90, 91, 92, 94, 96],
   };
+  // Noir chords: slow, dark minor loops (no bright major V)
+  const NOIR_PROGS = [{ d: [0, 5, 2, 6] }, { d: [0, 5, 6, 0] }, { d: [0, 3, 5, 4] }, { d: [5, 6, 0, 0] }, { d: [0, 6, 5, 6] }, { d: [0, 2, 5, 6] }];
 
   // Lead rhythms over two bars: [16th step, length]
   const RHYTHMS = {
@@ -52,6 +59,13 @@
       [[0, 6], [6, 1], [7, 1], [8, 6], [14, 1], [15, 1], [16, 4], [20, 2], [22, 2], [24, 4], [28, 1], [29, 1], [30, 2]],
       [[0, 2], [2, 1], [3, 1], [4, 2], [6, 2], [8, 8], [16, 2], [18, 1], [19, 1], [20, 2], [22, 2], [24, 8]],
       [[0, 4], [4, 1], [5, 1], [6, 1], [7, 1], [8, 4], [12, 4], [16, 3], [19, 3], [22, 2], [24, 1], [25, 1], [26, 1], [27, 1], [28, 4]],
+    ],
+    // long, lonely notes with room to echo
+    noir: [
+      [[0, 6], [6, 2], [8, 8], [16, 6], [22, 2], [24, 8]],
+      [[0, 4], [4, 4], [8, 12], [20, 4], [24, 8]],
+      [[0, 8], [8, 6], [14, 2], [16, 16]],
+      [[2, 2], [4, 10], [16, 4], [20, 4], [24, 8]],
     ],
     // staccato, syncopated riffs with room for octave jumps
     electro: [
@@ -73,11 +87,18 @@
   const KICKS = {
     amiga: [[0, 4, 8, 12], [0, 4, 8, 12], [0, 3, 8, 11], [0, 6, 8, 12]],
     electro: [[0, 6, 10], [0, 3, 6, 10], [0, 4, 8, 12], [0, 7, 10], [0, 6, 8, 11]],
+    noir: [[0, 8], [0, 8, 10], [0, 7, 8], [0, 10]], // half-time
   };
   const CHIP_CHORDS = [[0, 4, 8, 12], [0, 3, 6, 8, 11, 14], [0, 2, 4, 6, 8, 10, 12, 14], [0, 6, 8, 14]];
   const BELLS = [[2, 6, 11, 14, 18, 22, 27, 30], [0, 3, 6, 10, 12, 16, 19, 22, 26, 28], [3, 6, 10, 14, 19, 22, 26, 30]];
   const STABS = [[2, 6, 10, 14, 18, 22, 26, 30], [0, 3, 6, 10, 16, 19, 22, 26, 28], [3, 6, 11, 14, 19, 22, 27, 30], [0, 6, 12, 16, 22, 28]];
   const BASSES = {
+    // the pulse: eighths on the root, an octave or a fifth to turn the bar around
+    noir: [
+      [[0, 0, 2], [2, 0, 2], [4, 0, 2], [6, 0, 2], [8, 0, 2], [10, 0, 2], [12, 0, 2], [14, 12, 2]],
+      [[0, 0, 2], [2, 0, 2], [4, 12, 2], [6, 0, 2], [8, 0, 2], [10, 0, 2], [12, 12, 2], [14, 0, 2]],
+      [[0, 0, 3], [3, 0, 1], [4, 0, 2], [6, 0, 2], [8, 0, 3], [11, 0, 1], [12, 0, 2], [14, 7, 2]],
+    ],
     amiga: [
       [[0, 0, 2], [3, 0, 1], [4, 12, 2], [6, 0, 2], [8, 0, 2], [11, 0, 1], [12, 12, 2], [14, 7, 2]],
       [[0, 0, 2], [2, 12, 2], [4, 0, 2], [6, 12, 2], [8, 0, 2], [10, 12, 2], [12, 0, 2], [14, 12, 2]],
@@ -94,7 +115,7 @@
   const VOC_BANDS = 18, VOC_GAIN = 12, VOC_OUT = 0.75;
   // The driver won't bring the same subject up again for this long (seconds):
   // one lightning remark per storm, not one per strike.
-  const TALK_COOLDOWN = { lightning: 240, storm: 300, rain: 150, window: 400, clear: 150, mist: 150, heli: 200, smoke: 300 };
+  const TALK_COOLDOWN = { lightning: 240, storm: 300, rain: 150, window: 400, clear: 150, mist: 150, heli: 200, smoke: 300, fast: 60, slow: 60, stop: 90 };
   // Talk box: first three formants of the vowels it "sings" through, and the
   // closed vowel every note opens from.
   const FORMANTS = { a: [730, 1090, 2440], e: [530, 1840, 2480], i: [300, 2200, 2950], o: [570, 840, 2410], u: [320, 800, 2240] };
@@ -223,20 +244,23 @@
     let style = force || r.pick(STYLES);
     if (!force && prev && style === prev.style && r() < 0.7) style = r.pick(STYLES.filter((x) => x !== prev.style));
     const bpm = r.pick(BPMS[style]);
-    const verse = r.pick(PROGS);
-    let drop = r() < 0.55 ? verse : r.pick(PROGS);
-    const chordBars = r() < 0.55 ? 1 : 2;
-    const buildBars = 8;
-    const longBuild = r() < 0.65 ? 16 : 8; // the second wait is usually longer
+    const noir = style === 'noir';
+    const progs = noir ? NOIR_PROGS : PROGS;
+    const verse = r.pick(progs);
+    let drop = r() < 0.55 ? verse : r.pick(progs);
+    const chordBars = noir || r() < 0.45 ? 2 : 1; // noir chords take their time
+    const buildBars = noir ? 4 : 8;
+    const longBuild = noir ? (r() < 0.5 ? 8 : 4) : r() < 0.65 ? 16 : 8; // the second wait is usually longer
+    // at noir's slow tempo, shorter sections keep a track near four minutes
     const sections = [
-      { name: 'intro', bars: r() < 0.5 ? 16 : 8, energy: 0.25 },
+      { name: 'intro', bars: noir ? 8 : r() < 0.5 ? 16 : 8, energy: 0.25 },
       { name: 'verse', bars: 16, energy: 0.55 },
       { name: 'build', bars: buildBars, energy: 0.7 },
       { name: 'drop', bars: 16, energy: 1.0 },
-      { name: 'break', bars: r() < 0.5 ? 16 : 8, energy: 0.3 },
+      { name: 'break', bars: noir ? 8 : r() < 0.5 ? 16 : 8, energy: 0.3 },
       { name: 'build', bars: longBuild, energy: 0.75, second: true },
-      { name: 'drop', bars: r() < 0.5 ? 24 : 16, energy: 1.0, final: true },
-      { name: 'outro', bars: 16, energy: 0.4 },
+      { name: 'drop', bars: noir ? 16 : r() < 0.5 ? 24 : 16, energy: 1.0, final: true },
+      { name: 'outro', bars: noir ? 8 : 16, energy: 0.4 },
     ];
     let bar = 0;
     for (const s of sections) { s.start = bar; bar += s.bars; }
@@ -250,8 +274,8 @@
       hook, verseMel,
       arp: r.pick(ARPS),
       lift: r() < 0.6 ? 2 : r() < 0.5 ? 1 : 3,
-      leadWave: style === 'amiga' ? r.pick(['pulse25', 'pulse25', 'pulse12', 'square']) : r.pick(['sawtooth', 'sawtooth', 'square']),
-      leadCenter: style === 'amiga' ? 74 : 70,
+      leadWave: style === 'amiga' ? r.pick(['pulse25', 'pulse25', 'pulse12', 'square']) : noir ? 'sawtooth' : r.pick(['sawtooth', 'sawtooth', 'square']),
+      leadCenter: style === 'amiga' ? 74 : noir ? 67 : 70,
       bassOct: r.pick([true, true, false]),
       padBright: r.range(0.45, 0.8),
       swingHat: r() < 0.3,
@@ -260,7 +284,7 @@
       chipPat: r.pick(CHIP_CHORDS),
       bellPat: r.pick(BELLS),
       stabPat: r.pick(STABS),
-      talkbox: r() < { miami: 0.5, amiga: 0.2, electro: 0.6 }[style],
+      talkbox: r() < { miami: 0.5, amiga: 0.2, electro: 0.6, noir: 0 }[style],
     };
   }
 
@@ -369,6 +393,13 @@
       N.sat.curve = sat;
       const satOut = ctx.createGain(); satOut.gain.value = 0.62;
       N.sat.connect(satOut).connect(N.drums);
+      // grit: the noir bass's overdrive, into the music bus so it pumps
+      N.grit = ctx.createWaveShaper();
+      const grit = new Float32Array(1024);
+      for (let i = 0; i < 1024; i++) grit[i] = Math.tanh(((i / 1023) * 2 - 1) * 3.2) / Math.tanh(3.2);
+      N.grit.curve = grit;
+      const gritOut = ctx.createGain(); gritOut.gain.value = 0.55;
+      N.grit.connect(gritOut).connect(N.music);
       // reverbs
       N.verb = ctx.createConvolver();
       N.verb.buffer = this.impulse(ctx, 3.4, 2.2, false);
@@ -589,8 +620,9 @@
       const e1 = ctx.createOscillator(), e2 = ctx.createOscillator();
       e1.type = 'sawtooth'; e1.frequency.value = 41;
       e2.type = 'sawtooth'; e2.frequency.value = 82.6;
+      N.engine = [e1, e2];
       const eLP = ctx.createBiquadFilter(); eLP.type = 'lowpass'; eLP.frequency.value = 150; eLP.Q.value = 2;
-      const eG = ctx.createGain(); eG.gain.value = 0.035;
+      const eG = (N.engineG = ctx.createGain()); eG.gain.value = 0.035;
       const wob = ctx.createOscillator(); wob.frequency.value = 0.23;
       const wobG = ctx.createGain(); wobG.gain.value = 1.4;
       wob.connect(wobG).connect(e1.frequency);
@@ -622,6 +654,7 @@
       ND.bus.on('heli', () => this.request('heli', 20));
       ND.bus.on('arm-out', () => this.request('smoke'));
       ND.bus.on('window-up', () => this.request('window'));
+      ND.bus.on('speed', (e) => this.request(e.zone, 8));
     }
     toggle() {
       if (!this.ctx || !this.enabled) { this.start(); return true; }
@@ -688,6 +721,21 @@
       R.events.push({ bar: brk.start + 4, slot: 0, soft: true });
       if (T.style === 'electro') R.events.push({ bar: find('verse').start + 12, slot: 1, soft: true });
       plan.robot = R;
+      // noir has its own voices: a deep robot telling the verse, and a soft
+      // female voice in the choruses, the robot answering her
+      plan.noir = { robo: [], her: [], pick: [r(), r()], mel: [r.pick(VOC_MELODIES), r.pick(VOC_MELODIES)] };
+      if (T.style === 'noir') {
+        R.events.length = 0;
+        const v = find('verse');
+        for (let b = 2; b < v.bars; b += 4) plan.noir.robo.push({ bar: v.start + b, slot: (b >> 2) % 2 });
+        for (const d of T.sections) {
+          if (d.name !== 'drop') continue;
+          for (let b = 0; b < d.bars; b += 4) plan.noir.her.push({ bar: d.start + b });
+          plan.noir.robo.push({ bar: d.start + 2, slot: 0 }, { bar: d.start + 10, slot: 1 });
+        }
+        plan.noir.her.push({ bar: brk.start + 2 });
+        plan.noir.robo.push({ bar: brk.start + 6, slot: 1 });
+      }
       // the driver's moments in the song
       plan.talk = [];
       if (r() < 0.55) plan.talk.push({ bar: intro.start + 2, k: 0, tag: 'track' });
@@ -726,7 +774,7 @@
     clearAhead(t, n) {
       if ((this.busyUntil || 0) > t) return false;
       const P = this.vplan, hit = (e) => e.bar >= this.bar && e.bar <= this.bar + n;
-      return !P.hooks.some(hit) && !P.talk.some(hit) && !P.robot.events.some(hit) && !P.robot.dropIn.some(hit);
+      return !P.hooks.some(hit) && !P.talk.some(hit) && !P.robot.events.some(hit) && !P.robot.dropIn.some(hit) && !P.noir.robo.some(hit) && !P.noir.her.some(hit);
     }
 
     driverTalk(t, s, sb, k) {
@@ -780,9 +828,22 @@
       this.marks.splice(i, 0, m);
     }
 
+    // The noir robot's two lines for this track.
+    noirLine(slot) {
+      const P = this.vplan.noir, list = this.vox.robots.filter((x) => x.tags.includes('noir'));
+      if (!list.length) return null;
+      if (!P.clips) {
+        const a = Math.floor(P.pick[0] * list.length);
+        let b = Math.floor(P.pick[1] * list.length);
+        if (b === a) b = (b + 1) % list.length;
+        P.clips = [list[a], list[b]];
+      }
+      return P.clips[slot];
+    }
+
     // The two chorus lines for this track, fixed the first time they're sung.
     robotLine(slot) {
-      const R = this.vplan.robot, list = this.vox.robots.filter((x) => !x.tags.includes('drop-in'));
+      const R = this.vplan.robot, list = this.vox.robots.filter((x) => !x.tags.includes('drop-in') && !x.tags.includes('noir'));
       if (!R.clips) {
         const a = Math.floor(R.pick[0] * list.length);
         let b = Math.floor(R.pick[1] * list.length);
@@ -857,7 +918,7 @@
         if (s.name === 'drop') {
           this.impact(t, s.final ? 1.2 : 1);
           this.crash(t, 1);
-          if (T.style !== 'miami') this.orch(t, voice(pcs.slice(0, 3), null, 55), s.final ? 1.1 : 0.95);
+          if (T.style === 'amiga' || T.style === 'electro') this.orch(t, voice(pcs.slice(0, 3), null, 55), s.final ? 1.1 : 0.95);
           N.sweep.frequency.cancelScheduledValues(t);
           N.sweep.frequency.setValueAtTime(18000, t);
           this.marks.push({ t, type: 'drop', final: !!s.final });
@@ -923,10 +984,24 @@
           this.vocode(Math.max(t, t + this.stepDur * 16 - clip.dur - 0.02), clip, ev.mel, voice(pcs, null, 52), 1);
         }
       }
+      // --- noir: the deep robot and the woman who answers him
+      if (T.style === 'noir' && k === 0 && this.vox && this.vox.ready && this.vplan) {
+        const NP = this.vplan.noir;
+        for (const ev of NP.robo) {
+          if (ev.bar !== this.bar) continue;
+          const clip = this.noirLine(ev.slot);
+          if (clip) this.vocode(t, clip, NP.mel[ev.slot], voice(pcs, null, 40), 1.05, 0.55);
+        }
+        for (const ev of NP.her) {
+          if (ev.bar !== this.bar) continue;
+          const h = this.pickHook('noir');
+          if (h) this.hook(t + this.stepDur * 2, h, 'noir');
+        }
+      }
       // --- the driver
       if (this.chatter && this.vox && this.vox.driver.length && this.vplan) this.driverTalk(t, s, sb, k);
       // --- the wait: one beat of silence before every drop
-      const gap = s.name === 'build' && lastBar && k >= 12;
+      const gap = T.style !== 'noir' && s.name === 'build' && lastBar && k >= 12;
       if (gap) {
         if (k === 12) {
           N.music.gain.cancelScheduledValues(t);
@@ -938,7 +1013,8 @@
       }
 
       // ------------------------------------------------ drums
-      if (T.style === 'amiga') this.drumsAmiga(t, s, sb, k, lastBar, secT);
+      if (T.style === 'noir') this.drumsNoir(t, s, sb, k, lastBar, secT);
+      else if (T.style === 'amiga') this.drumsAmiga(t, s, sb, k, lastBar, secT);
       else if (T.style === 'electro') this.drumsElectro(t, s, sb, k, lastBar, secT);
       else this.drumsMiami(t, s, sb, k, lastBar, secT);
 
@@ -953,6 +1029,7 @@
           const m = (next ? degMidi(tonic, this.chordAt(this.bar + 1, prog).deg, 38) : root) + hit[1];
           const dur = this.stepDur * hit[2] * 0.9;
           if (T.style === 'amiga') this.chipBass(t, m, dur, s.name === 'drop' ? 0.9 : 0.7);
+          else if (T.style === 'noir') this.noirBass(t, m, dur, s.name === 'drop' ? 1 : 0.8, s.name === 'drop' ? 0.75 : 0.45 + secT * 0.2);
           else this.bass(t, m, dur, 0.85, s.name === 'drop' ? 0.85 : 0.55);
         }
       } else if (bassOn) {
@@ -971,7 +1048,8 @@
           this.bass(t, root + (k === 6 ? 12 : 0), this.stepDur * 3, 0.8, 0.5);
         }
       } else if (s.name === 'break' && k === 0 && this.bar % T.chordBars === 0) {
-        this.bass(t, root, this.stepDur * 16 * T.chordBars * 0.95, 0.5, 0.2);
+        if (T.style === 'noir') this.noirBass(t, root, this.stepDur * 16 * T.chordBars * 0.95, 0.6, 0.15);
+        else this.bass(t, root, this.stepDur * 16 * T.chordBars * 0.95, 0.5, 0.2);
       }
 
       // ------------------------------------------------ chords
@@ -986,6 +1064,16 @@
           const vel = s.name === 'outro' ? 0.26 * (1 - secT) + 0.05 : big ? 0.4 : s.name === 'verse' ? 0.2 : 0.26;
           this.pad(t, v, dur, bright, vel, big ? 5 : 3, big ? 0.03 : 0.5);
           if (s.final) this.pad(t, v.map((m) => m + 12), dur, 0.8, 0.12, 2, 0.05);
+        }
+      } else if (T.style === 'noir') {
+        // brooding pads that swell open in the choruses
+        if (chordStart) {
+          const v = voice(pcs, this.prevVoicing, 55);
+          this.prevVoicing = v;
+          const dur = this.stepDur * 16 * T.chordBars;
+          const big = s.name === 'drop';
+          this.pad(t, v, dur, big ? 0.55 : s.name === 'build' ? 0.3 + secT * 0.3 : 0.28, big ? 0.34 : s.name === 'break' ? 0.26 : 0.22, big ? 5 : 3, big ? 0.3 : 0.9);
+          if (big) this.pad(t, v.map((m) => m + 12), dur, 0.45, 0.12, 2, 0.6);
         }
       } else if (T.style === 'amiga') {
         // tracker chords: fast arpeggios in the groove, a soft string pad in the quiet parts
@@ -1025,6 +1113,9 @@
             const m = v[idx % v.length] + (k >= 8 && s.name === 'drop' ? 12 : 0);
             this.arp(t, m, s.name === 'drop' ? 0.16 : s.name === 'break' ? 0.1 : 0.13, bright);
           }
+        } else if (T.style === 'noir') {
+          // only the builds get a pulse, climbing with the tension
+          if (s.name === 'build' && k % 2 === 0) this.arp(t, v[idx % v.length], 0.07 + secT * 0.06, 0.25 + secT * 0.5, 'sawtooth');
         } else if (s.name !== 'drop' && (T.style === 'amiga' ? s.name !== 'break' || k % 2 === 0 : k % 2 === 0)) {
           // chip bleeps an octave up (amiga), sequencer blips on the eighths (electro)
           const amiga = T.style === 'amiga';
@@ -1033,7 +1124,7 @@
       }
 
       // ------------------------------------------------ vocal chops ride the drops
-      const chopsOn = sb >= 8 || (s.final && !(this.vplan && this.vplan.robot));
+      const chopsOn = T.style !== 'noir' && (sb >= 8 || (s.final && !(this.vplan && this.vplan.robot)));
       if (s.name === 'drop' && chopsOn && this.vox && this.vox.ready && this.vox.chops.length && this.vplan) {
         const P = this.vplan.chop;
         const pos = (this.bar % 2) * 16 + k;
@@ -1049,7 +1140,7 @@
       // ------------------------------------------------ lead
       // Melodies are eight-bar phrases of two-bar cells: the hook in the drops
       // (slowed down in the breakdown) and a calmer tune in the verse.
-      const leadOn = s.name === 'drop' || (s.name === 'break' && sb >= 4) || (s.name === 'verse' && sb >= 8);
+      const leadOn = s.name === 'drop' || (s.name === 'break' && sb >= 4) || (s.name === 'verse' && sb >= 8 && T.style !== 'noir');
       if (leadOn) {
         const ci = Math.floor(sb / 2) % 4;
         const cellNotes = (s.name === 'verse' ? T.verseMel : T.hook)[ci];
@@ -1143,6 +1234,22 @@
     }
 
     // Electro kit: 808-style kick, claps, metallic hats, cowbell, Simmons toms.
+    // Noir kit: a half-time kick, a huge gated snare on two and four, soft hats,
+    // and a tom run instead of a snare roll into each chorus.
+    drumsNoir(t, s, sb, k, lastBar, secT) {
+      const T = this.track;
+      const kickOn = (s.name === 'intro' && sb >= s.bars / 2) || s.name === 'verse' || s.name === 'drop' || s.name === 'build' || (s.name === 'outro' && sb < s.bars - 2);
+      if (kickOn && T.kickPat.includes(k)) this.kick(t, s.name === 'drop' ? 1 : 0.85, s.name === 'drop' ? 0.35 : 0.25);
+      const snareOn = s.name === 'verse' || s.name === 'drop' || s.name === 'build' || (s.name === 'outro' && sb < s.bars - 2);
+      if (snareOn && (k === 4 || k === 12)) this.snare(t, s.name === 'drop' ? 1 : 0.85, true, 0.92);
+      const hatsOn = s.name !== 'break' && !(s.name === 'intro' && sb < s.bars / 2);
+      if (hatsOn && k % 2 === 0) this.hat(t, s.name === 'drop' && k === 14, s.name === 'drop' ? 0.2 : 0.14);
+      if (hatsOn && s.name === 'drop' && k % 2 === 1) this.hat(t, false, 0.07);
+      if (s.name === 'build' && lastBar && k >= 8 && k % 2 === 0) this.tom(t, 170 - (k - 8) * 16, 0.8);
+      if ((s.name === 'drop' || s.name === 'verse') && sb % 8 === 7 && k >= 12 && k % 2 === 0 && !lastBar) this.tom(t, 150 - (k - 12) * 20, 0.6);
+      if (s.name === 'drop' && sb % 8 === 0 && sb > 0 && k === 0) this.crash(t, 0.5);
+    }
+
     drumsElectro(t, s, sb, k, lastBar, secT) {
       const T = this.track, S = this.smp;
       const kickOn =
@@ -1383,15 +1490,16 @@
     // into long notes.
     lead(t, m, dur, v, wave, echo = false) {
       const c = this.ctx, N = this.n, style = this.track.style;
-      const amiga = style === 'amiga', electro = style === 'electro';
+      const amiga = style === 'amiga', electro = style === 'electro', noir = style === 'noir';
       const f = hz(m);
       const g = c.createGain();
       if (amiga) this.env(g, t, 0.003, v, 0.12, 0.7, 0.05, t + dur + 0.04);
+      else if (noir) this.env(g, t, 0.05, v * 0.85, 0.3, 0.8, 0.3, t + dur + 0.2);
       else this.env(g, t, 0.012, v, 0.18, 0.78, 0.18, t + dur + 0.12);
       const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1.6;
       lp.frequency.setValueAtTime(amiga ? 7000 : 5200, t);
       if (!amiga) lp.frequency.exponentialRampToValueAtTime(2600, t + 0.3);
-      const lfo = c.createOscillator(); lfo.frequency.value = amiga ? 6.8 : 5.6;
+      const lfo = c.createOscillator(); lfo.frequency.value = amiga ? 6.8 : noir ? 4.5 : 5.6;
       const lfoG = c.createGain();
       lfoG.gain.setValueAtTime(0, t);
       if (amiga) {
@@ -1401,7 +1509,7 @@
       lfo.connect(lfoG);
       const near = !echo && this.prevLead && Math.abs(this.prevLead - m) <= (amiga ? 5 : 7);
       const from = near ? hz(this.prevLead) : electro && !echo && dur > this.stepDur * 3 ? hz(m - 2) : f;
-      const glide = amiga ? 0.07 : electro && !near ? 0.09 : 0.045;
+      const glide = amiga ? 0.07 : noir ? 0.12 : electro && !near ? 0.09 : 0.045;
       const layers = amiga ? [[wave, 0, 0.75], ['square', -1200, 0.16]] : [[wave, -8, 0.5], [wave, 8, 0.5], ['square', -1200, 0.22]];
       const oscs = [];
       for (const [type, det, gain] of layers) {
@@ -1425,8 +1533,8 @@
         const p = c.createStereoPanner(); p.pan.value = 0.5;
         g.connect(p).connect(N.lead);
       } else g.connect(N.lead);
-      const rs = c.createGain(); rs.gain.value = amiga ? 0.12 : 0.38; g.connect(rs).connect(N.verbIn);
-      const ds = c.createGain(); ds.gain.value = amiga ? 0.2 : 0.3; g.connect(ds).connect(N.delayIn);
+      const rs = c.createGain(); rs.gain.value = amiga ? 0.12 : noir ? 0.55 : 0.38; g.connect(rs).connect(N.verbIn);
+      const ds = c.createGain(); ds.gain.value = amiga ? 0.2 : noir ? 0.5 : 0.3; g.connect(ds).connect(N.delayIn);
       const end = t + dur + 0.2;
       lfo.start(t); lfo.stop(end);
       for (const o of oscs) { o.start(t); o.stop(end); }
@@ -1484,8 +1592,8 @@
       eq.frequency.value = tag === 'intro' ? 1800 : 3200;
       if (tag === 'intro') eq.Q.value = 0.7; else { eq.gain.value = 3; eq.Q.value = 0.8; }
       src.connect(eq).connect(g).connect(N.vox);
-      const rs = c.createGain(); rs.gain.value = 0.5; g.connect(rs).connect(N.verbIn);
-      const ds = c.createGain(); ds.gain.value = tag === 'drop-in' ? 0.15 : 0.32; g.connect(ds).connect(N.delayIn);
+      const rs = c.createGain(); rs.gain.value = tag === 'noir' ? 0.7 : 0.5; g.connect(rs).connect(N.verbIn);
+      const ds = c.createGain(); ds.gain.value = tag === 'drop-in' ? 0.15 : tag === 'noir' ? 0.45 : 0.32; g.connect(ds).connect(N.delayIn);
       src.start(t, h.onset);
       src.stop(t + h.dur + 0.2);
       this.busyUntil = Math.max(this.busyUntil || 0, t + h.dur);
@@ -1612,6 +1720,27 @@
       o.start(t); o.stop(t + dur + 0.03);
     }
 
+    // Noir bass: two detuned saws and a sub-octave square through a resonant
+    // filter, then driven hard: fat, gritty and analog.
+    noirBass(t, m, dur, v, bright) {
+      const c = this.ctx, N = this.n;
+      const f = hz(m);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 4;
+      lp.frequency.setValueAtTime(320 + 1500 * bright, t);
+      lp.frequency.setTargetAtTime(190 + 520 * bright, t + 0.01, 0.12);
+      const g = c.createGain();
+      this.env(g, t, 0.006, 0.3 * v, 0.2, 0.75, 0.04, t + dur);
+      const oscs = [];
+      for (const [type, det, gain, mult] of [['sawtooth', -9, 0.5, 1], ['sawtooth', 9, 0.5, 1], ['square', 0, 0.45, 0.5]]) {
+        const o = c.createOscillator(); o.type = type; o.frequency.value = f * mult; o.detune.value = det;
+        const og = c.createGain(); og.gain.value = gain;
+        o.connect(og).connect(lp);
+        oscs.push(o);
+      }
+      lp.connect(g).connect(N.grit);
+      for (const o of oscs) { o.start(t); o.stop(t + dur + 0.05); }
+    }
+
     // Tracker bass: a plucked square.
     chipBass(t, m, dur, v) {
       const c = this.ctx, N = this.n;
@@ -1647,12 +1776,12 @@
     // each band's loudness opens the same band of a synth (the carrier) that
     // sings the line: a lead voice stepping through the melody syllable by
     // syllable, the chord underneath, and a little noise for the consonants.
-    vocode(t, clip, mel, tones, v) {
+    vocode(t, clip, mel, tones, v, verb = 0.35) {
       const c = this.ctx, N = this.n;
       const end = t + clip.dur;
       const out = c.createGain(); out.gain.value = v * VOC_OUT;
       out.connect(N.vox);
-      const rs = c.createGain(); rs.gain.value = 0.35; out.connect(rs).connect(N.verbIn);
+      const rs = c.createGain(); rs.gain.value = verb; out.connect(rs).connect(N.verbIn);
       const ds = c.createGain(); ds.gain.value = 0.22; out.connect(ds).connect(N.delayIn);
       const mod = c.createBufferSource(); mod.buffer = clip.buf;
       const modG = c.createGain(); modG.gain.value = clip.norm;
@@ -1716,7 +1845,12 @@
       const rain = w.v.rain;
       this.n.rainG.gain.setTargetAtTime(rain * 0.3, t, 0.5);
       this.n.rainLP.frequency.setTargetAtTime(1600 + rain * 3200, t, 0.5);
-      this.n.hissG.gain.setTargetAtTime(0.004 + rain * 0.05, t, 0.5);
+      // the engine note and the tyres follow the speed pedal (not the music)
+      const sp = ND.world.speed / ND.SPEED;
+      this.n.engine[0].frequency.setTargetAtTime(41 * (0.8 + 0.3 * sp), t, 0.4);
+      this.n.engine[1].frequency.setTargetAtTime(82.6 * (0.8 + 0.3 * sp), t, 0.4);
+      this.n.engineG.gain.setTargetAtTime(0.035 * (0.8 + 0.25 * sp), t, 0.4);
+      this.n.hissG.gain.setTargetAtTime((0.004 + rain * 0.05) * Math.min(1.8, sp), t, 0.5);
       this.n.verbOut.gain.setTargetAtTime(0.55 + rain * 0.2, t, 1);
     }
 
